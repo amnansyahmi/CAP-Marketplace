@@ -19,7 +19,10 @@
   --secondary-foreground: #f5f0e7;
 
   --muted: #e9e2d6;
-  --muted-foreground: #716d63;
+  /* Darkened from #716d63: that only cleared 4.5:1 on the cream background and
+     failed on the muted (#e9e2d6) and story (#e7ddcd) surfaces. This passes on
+     all four. */
+  --muted-foreground: #5f5a50;
 
   --accent: #e7ddcd;
   --accent-foreground: #25241f;
@@ -87,6 +90,22 @@
   a {
     text-decoration: none;
     color: inherit;
+  }
+}
+
+/* Honour the OS "reduce motion" setting: the storefront leans on scale,
+   slide and smooth-scroll effects that can trigger motion sickness. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

@@ -28,6 +28,30 @@ type Values = {
   notes: string;
 };
 
+/** Form order, so "first error" means first on screen rather than first in the object. */
+const FIELD_ORDER: (keyof Values)[] = [
+  "fullName",
+  "email",
+  "phone",
+  "line1",
+  "postcode",
+  "city",
+  "state",
+];
+
+/**
+ * Move focus to the first field that failed. Without this the errors render but
+ * focus stays on the submit button, so keyboard and screen-reader users get no
+ * indication that anything went wrong.
+ */
+function focusFirstError(errors: FieldErrors) {
+  const first = FIELD_ORDER.find((key) => errors[key]);
+  if (!first) return;
+  const el = document.getElementById(first);
+  el?.focus();
+  el?.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
 const EMPTY: Values = {
   fullName: "",
   email: "",
@@ -67,7 +91,10 @@ export function CheckoutForm() {
 
     const nextErrors = validateCheckout(payload);
     setErrors(nextErrors);
-    if (hasErrors(nextErrors)) return;
+    if (hasErrors(nextErrors)) {
+      focusFirstError(nextErrors);
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -79,7 +106,10 @@ export function CheckoutForm() {
       const data = await response.json();
 
       if (!response.ok) {
-        if (data.errors) setErrors(data.errors);
+        if (data.errors) {
+          setErrors(data.errors);
+          focusFirstError(data.errors);
+        }
         setFormError(data.error ?? "Please check the highlighted fields and try again.");
         return;
       }

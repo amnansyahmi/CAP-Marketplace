@@ -23,7 +23,15 @@ export const navLinks = [
 
 export function SiteHeader() {
   return (
-    <header className="sticky top-0 z-40 border-b border-black/8 bg-[#f5f0e7]/92 backdrop-blur-xl">
+    <>
+      {/* First tab stop on every page, so keyboard users can bypass the nav. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:border focus:border-border focus:bg-background focus:px-5 focus:py-3 focus:text-sm focus:font-medium"
+      >
+        Skip to content
+      </a>
+      <header className="sticky top-0 z-40 border-b border-black/8 bg-[#f5f0e7]/92 backdrop-blur-xl">
       <div className="mx-auto flex h-18 max-w-[1440px] items-center justify-between px-5 lg:px-10">
         <MobileNav />
         <Link href="/" className="flex items-baseline gap-2">
@@ -37,9 +45,10 @@ export function SiteHeader() {
             </Link>
           ))}
         </nav>
-        <CartSheet />
-      </div>
-    </header>
+          <CartSheet />
+        </div>
+      </header>
+    </>
   );
 }
 

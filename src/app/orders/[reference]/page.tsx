@@ -52,8 +52,9 @@ export default async function OrderPage({
   const { isLive } = chipConfig();
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground">
       <SiteHeader />
+      <main id="main-content" tabIndex={-1} className="outline-none">
       <section className="mx-auto max-w-[860px] px-5 py-16 lg:px-10 lg:py-24">
         <p className="eyebrow">Order {order.reference}</p>
         <h1 className="mt-4 font-serif text-5xl leading-[1.02] tracking-[-.04em] lg:text-6xl">{copy.heading}</h1>
@@ -154,7 +155,8 @@ export default async function OrderPage({
           )}
         </div>
       </section>
+      </main>
       <SiteFooter />
-    </main>
+    </div>
   );
 }

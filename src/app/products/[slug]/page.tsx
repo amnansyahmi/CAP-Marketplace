@@ -36,8 +36,9 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
   const { nutrition } = product;
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground">
       <SiteHeader />
+      <main id="main-content" tabIndex={-1} className="outline-none">
 
       <div className="mx-auto max-w-[1440px] px-5 pt-8 lg:px-10">
         <nav className="text-xs text-muted-foreground" aria-label="Breadcrumb">
@@ -158,7 +159,8 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
         </div>
       </section>
 
+      </main>
       <SiteFooter />
-    </main>
+    </div>
   );
 }

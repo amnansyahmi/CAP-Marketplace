@@ -64,21 +64,23 @@ export default function Marketplace() {
   };
 
   return (
-    <main className="min-h-screen overflow-hidden bg-background text-foreground">
+    <div className="min-h-screen overflow-hidden bg-background text-foreground">
       <SiteHeader />
-      <Hero />
-      <Promises />
-      <Collection onAdd={addToBag} onQuickView={setQuickView} />
-      <Story />
-      <Guide />
-      <Faq />
+      <main id="main-content" tabIndex={-1} className="outline-none">
+        <Hero />
+        <Promises />
+        <Collection onAdd={addToBag} onQuickView={setQuickView} />
+        <Story />
+        <Guide />
+        <Faq />
+      </main>
       <SiteFooter />
       <QuickViewDialog
         product={quickView}
         onOpenChange={(open) => !open && setQuickView(null)}
         onAdd={addToBag}
       />
-    </main>
+    </div>
   );
 }
 
@@ -130,7 +132,7 @@ function Hero() {
         </div>
         <div className="absolute left-7 top-7 border-l border-black/30 pl-4 text-xs leading-5">
           <strong className="block uppercase tracking-[.18em]">Signature collection</strong>
-          <span className="text-black/55">Three pastes, one pantry</span>
+          <span className="text-black/70">Three pastes, one pantry</span>
         </div>
       </div>
     </section>
@@ -143,7 +145,7 @@ function Promises() {
       <div className="mx-auto grid max-w-[1440px] grid-cols-1 divide-y divide-white/12 md:grid-cols-3 md:divide-x md:divide-y-0">
         {promises.map((p, i) => (
           <div key={p.title} className="px-6 py-9 lg:px-10">
-            <span className="text-[10px] tracking-[.22em] text-white/35">{String(i + 1).padStart(2, "0")}</span>
+            <span className="text-[10px] tracking-[.22em] text-white/60">{String(i + 1).padStart(2, "0")}</span>
             <h3 className="mt-5 text-sm font-medium">{p.title}</h3>
             <p className="mt-2 max-w-xs text-xs leading-5 text-white/55">{p.text}</p>
           </div>
@@ -319,7 +321,7 @@ function Story() {
             This collection is built around the dishes people gather for. The paste handles the layering of aromatics
             and spice, so you can focus on the table, the people and the moment.
           </p>
-          <blockquote className="mt-8 border-l border-black/20 pl-5 text-sm italic leading-7 text-black/60">
+          <blockquote className="mt-8 border-l border-black/20 pl-5 text-sm italic leading-7 text-black/65">
             {HERITAGE_NOTE}
           </blockquote>
         </div>
