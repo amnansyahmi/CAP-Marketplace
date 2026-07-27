@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
-import { Plus } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -34,7 +33,10 @@ function AccordionTrigger({
         {...props}
       >
         {children}
-        <Plus className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-45" />
+        <span aria-hidden className="relative size-3 shrink-0 text-muted-foreground">
+          <span className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-current" />
+          <span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-current transition-transform duration-200 group-data-[state=open]:scale-y-0" />
+        </span>
       </AccordionPrimitive.Trigger>
     </AccordionPrimitive.Header>
   );

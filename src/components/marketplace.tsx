@@ -2,7 +2,7 @@
 import Image from "next/image";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Menu, Minus, Plus, ShoppingBag, ArrowRight, ShieldCheck, Truck, Clock3, Eye } from "lucide-react";
+import { Menu, Minus, Plus } from "lucide-react";
 import { products, type Product } from "@/lib/products";
 import { money } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -13,9 +13,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetClose, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
 type Cart = Record<string, number>;
+
+const navLinks = [
+  { href: "#collection", label: "Shop" },
+  { href: "#story", label: "Our kitchen" },
+  { href: "#guide", label: "How to cook" },
+  { href: "#faq", label: "FAQs" },
+];
+
+const promises = [
+  { title: "Dinner in less time", text: "A practical shortcut without flattening the flavour." },
+  { title: "Kitchen-tested", text: "Balanced recipes, created for consistent results." },
+  { title: "Delivered across Malaysia", text: "Packed carefully and sent directly to your door." },
+];
 
 const faqs = [
   { q: "How long does delivery take?", a: "Orders across Peninsular Malaysia arrive within 2-4 working days. East Malaysia may take a little longer." },
@@ -33,7 +46,7 @@ export default function Marketplace() {
 
   const add = (product: Product) => {
     setCart((c) => ({ ...c, [product.id]: (c[product.id] || 0) + 1 }));
-    toast.success(`${product.name} added to bag`);
+    toast(`${product.name} — added to bag`);
   };
   const change = (id: string, delta: number) =>
     setCart((c) => {
@@ -47,7 +60,7 @@ export default function Marketplace() {
     <main className="min-h-screen overflow-hidden bg-background text-foreground">
       <Header count={count} cart={cart} total={total} change={change} />
       <Hero startingPrice={startingPrice} />
-      <Features />
+      <Promises />
       <Collection cart={cart} onAdd={add} onQuickView={setQuickView} />
       <Story />
       <Guide />
@@ -67,18 +80,17 @@ function Header({ count, cart, total, change }: { count: number; cart: Cart; tot
   return (
     <header className="sticky top-0 z-40 border-b border-black/8 bg-[#f5f0e7]/92 backdrop-blur-xl">
       <div className="mx-auto flex h-18 max-w-[1440px] items-center justify-between px-5 lg:px-10">
-        <button className="lg:hidden" aria-label="Open menu">
-          <Menu className="size-5" />
-        </button>
+        <MobileNav />
         <a href="#" className="flex items-baseline gap-2">
           <span className="font-serif text-[1.65rem] tracking-[-.04em]">Chef Ammar</span>
           <span className="text-[10px] font-semibold uppercase tracking-[.22em] text-muted-foreground">Pantry</span>
         </a>
         <nav className="hidden items-center gap-8 text-sm lg:flex">
-          <a href="#collection">Shop</a>
-          <a href="#story">Our kitchen</a>
-          <a href="#guide">How to cook</a>
-          <a href="#faq">FAQs</a>
+          {navLinks.map((l) => (
+            <a key={l.href} href={l.href} className="transition-colors hover:text-primary">
+              {l.label}
+            </a>
+          ))}
         </nav>
         <CartSheet count={count} cart={cart} total={total} change={change} />
       </div>
@@ -86,20 +98,45 @@ function Header({ count, cart, total, change }: { count: number; cart: Cart; tot
   );
 }
 
+function MobileNav() {
+  return (
+    <Sheet>
+      <SheetTrigger asChild>
+        <button className="lg:hidden" aria-label="Open menu">
+          <Menu className="size-5 stroke-[1.6]" />
+        </button>
+      </SheetTrigger>
+      <SheetContent side="left" className="max-w-xs">
+        <SheetHeader>
+          <SheetTitle>Chef Ammar</SheetTitle>
+          <SheetDescription>Cook generously</SheetDescription>
+        </SheetHeader>
+        <nav className="flex flex-col">
+          {navLinks.map((l) => (
+            <SheetClose asChild key={l.href}>
+              <a href={l.href} className="border-b border-border px-6 py-5 font-serif text-2xl transition-colors hover:text-primary">
+                {l.label}
+              </a>
+            </SheetClose>
+          ))}
+        </nav>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 function Hero({ startingPrice }: { startingPrice: number }) {
   return (
     <section className="relative mx-auto grid max-w-[1440px] lg:min-h-[720px] lg:grid-cols-[.88fr_1.12fr]">
       <div className="flex flex-col justify-center px-6 py-18 lg:px-14 lg:py-24 xl:px-24">
-        <Badge variant="outline" className="mb-6 w-fit">
-          Made for generous tables
-        </Badge>
+        <p className="eyebrow mb-6">Made for generous tables</p>
         <h1 className="max-w-2xl font-serif text-[clamp(3.6rem,7.4vw,7.5rem)] leading-[.88] tracking-[-.055em]">Arabian rice, made easier.</h1>
         <p className="mt-8 max-w-lg text-base leading-7 text-muted-foreground lg:text-lg">
           Chef-crafted cooking pastes with deep aroma, honest ingredients and enough flavour for the whole family.
         </p>
-        <div className="mt-10 flex flex-wrap items-center gap-5">
+        <div className="mt-10 flex flex-wrap items-center gap-6">
           <Button variant="warm" size="lg" onClick={() => document.getElementById("collection")?.scrollIntoView({ behavior: "smooth" })}>
-            Shop the collection <ArrowRight className="size-4" />
+            Shop the collection
           </Button>
           <span className="text-sm text-muted-foreground">From {money(startingPrice)} per jar</span>
         </div>
@@ -117,27 +154,19 @@ function Hero({ startingPrice }: { startingPrice: number }) {
   );
 }
 
-function Features() {
+function Promises() {
   return (
     <section className="border-y border-border bg-[#272821] text-[#f5f0e7]">
       <div className="mx-auto grid max-w-[1440px] grid-cols-1 divide-y divide-white/12 md:grid-cols-3 md:divide-x md:divide-y-0">
-        <Feature icon={<Clock3 />} title="Dinner in less time" text="A practical shortcut without flattening the flavour." />
-        <Feature icon={<ShieldCheck />} title="Kitchen-tested" text="Balanced recipes, created for consistent results." />
-        <Feature icon={<Truck />} title="Delivered across Malaysia" text="Packed carefully and sent directly to your door." />
+        {promises.map((p, i) => (
+          <div key={p.title} className="px-6 py-9 lg:px-10">
+            <span className="text-[10px] tracking-[.22em] text-white/35">{String(i + 1).padStart(2, "0")}</span>
+            <h3 className="mt-5 text-sm font-medium">{p.title}</h3>
+            <p className="mt-2 max-w-xs text-xs leading-5 text-white/55">{p.text}</p>
+          </div>
+        ))}
       </div>
     </section>
-  );
-}
-
-function Feature({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
-  return (
-    <div className="flex gap-4 px-6 py-7 lg:px-10">
-      <div className="mt-1 [&_svg]:size-4 [&_svg]:stroke-[1.5]">{icon}</div>
-      <div>
-        <h3 className="text-sm font-medium">{title}</h3>
-        <p className="mt-1 text-xs leading-5 text-white/55">{text}</p>
-      </div>
-    </div>
   );
 }
 
@@ -169,16 +198,15 @@ function ProductCard({ product, quantity, onAdd, onQuickView }: { product: Produ
         <Image src={product.image} alt={product.name} fill className="object-cover transition-transform duration-700 group-hover:scale-[1.025]" />
         <div className="absolute left-4 top-4 text-2xl text-black/25">{product.arabic}</div>
         {quantity > 0 && (
-          <Badge variant="secondary" className="absolute right-4 top-4">
-            {quantity} in bag
-          </Badge>
+          <span className="absolute right-4 top-4 grid size-8 place-items-center bg-foreground text-xs text-background" aria-label={`${quantity} in bag`}>
+            {quantity}
+          </span>
         )}
         <button
           onClick={onQuickView}
-          aria-label={`Quick view ${product.name}`}
-          className="absolute inset-x-4 bottom-4 flex items-center justify-center gap-2 border border-border bg-background/90 py-2.5 text-xs font-semibold uppercase tracking-[.14em] opacity-0 backdrop-blur transition-opacity duration-300 group-hover:opacity-100"
+          className="absolute inset-x-4 bottom-4 border border-border bg-background/92 py-2.5 text-[10px] font-semibold uppercase tracking-[.16em] opacity-0 backdrop-blur transition-opacity duration-300 group-hover:opacity-100 focus-visible:opacity-100"
         >
-          <Eye className="size-3.5" /> Quick view
+          Quick view<span className="sr-only"> {product.name}</span>
         </button>
       </div>
       <CardContent className="pt-5">
@@ -224,13 +252,13 @@ function QuickViewDialog({ product, quantity, onOpenChange, onAdd }: { product: 
                 <DialogTitle className="mt-3">{product.name}</DialogTitle>
                 <DialogDescription className="text-base leading-7">{product.longDescription}</DialogDescription>
               </DialogHeader>
-              <div className="mt-auto flex items-center justify-between pt-6">
+              <div className="mt-auto flex items-baseline justify-between pt-6">
                 <span className="font-serif text-3xl">{money(product.price)}</span>
                 {quantity > 0 && <span className="text-xs text-muted-foreground">{quantity} in bag</span>}
               </div>
               <DialogFooter className="mt-4">
                 <Button variant="warm" size="lg" className="w-full" onClick={() => onAdd(product)}>
-                  Add to bag <ArrowRight className="size-4" />
+                  Add to bag
                 </Button>
               </DialogFooter>
             </div>
@@ -255,7 +283,7 @@ function Story() {
             This collection is built around the dishes people gather for. The paste handles the layering of aromatics and spice, so you can focus on the table, the people and the moment.
           </p>
           <Button variant="outline" className="mt-9">
-            Read our story <ArrowRight className="size-4" />
+            Read our story
           </Button>
         </div>
       </div>
@@ -338,10 +366,8 @@ function CartSheet({ count, cart, total, change }: { count: number; cart: Cart; 
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <button className="relative flex items-center gap-2 text-sm">
-          <ShoppingBag className="size-5 stroke-[1.6]" />
-          <span className="hidden sm:inline">Bag</span>
-          {count > 0 && <span className="grid size-5 place-items-center rounded-full bg-foreground text-[10px] text-background">{count}</span>}
+        <button className="text-sm tracking-[.02em]">
+          Bag <span className="text-muted-foreground">({count})</span>
         </button>
       </SheetTrigger>
       <SheetContent className="flex flex-col">
@@ -351,11 +377,10 @@ function CartSheet({ count, cart, total, change }: { count: number; cart: Cart; 
         </SheetHeader>
         <div className="flex-1 overflow-y-auto p-6">
           {!count ? (
-            <div className="grid h-full place-items-center text-center">
+            <div className="grid h-full place-items-center px-6 text-center">
               <div>
-                <ShoppingBag className="mx-auto size-8 stroke-1 text-muted-foreground" />
-                <p className="mt-4 font-serif text-2xl">Nothing here yet.</p>
-                <p className="mt-2 text-sm text-muted-foreground">Add a paste to start your order.</p>
+                <p className="font-serif text-3xl leading-tight">Nothing here yet.</p>
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">Add a paste to start your order.</p>
               </div>
             </div>
           ) : (
@@ -377,7 +402,7 @@ function CartSheet({ count, cart, total, change }: { count: number; cart: Cart; 
             <p className="mt-2 text-xs text-muted-foreground">Delivery calculated at checkout.</p>
             <Separator className="my-5" />
             <Button variant="warm" size="lg" className="w-full">
-              Continue to checkout <ArrowRight className="size-4" />
+              Continue to checkout
             </Button>
             <p className="mt-4 text-center text-[10px] uppercase tracking-[.16em] text-muted-foreground">Secure checkout powered by CHIP</p>
           </SheetFooter>
@@ -402,11 +427,11 @@ function CartLine({ product, quantity, change }: { product: Product; quantity: n
           <strong className="text-sm">{money(product.price * quantity)}</strong>
         </div>
         <div className="flex w-fit items-center border border-border">
-          <button className="grid size-8 place-items-center" onClick={() => change(product.id, -1)} aria-label={`Remove one ${product.name}`}>
+          <button className="grid size-8 place-items-center transition-colors hover:bg-muted" onClick={() => change(product.id, -1)} aria-label={`Remove one ${product.name}`}>
             <Minus className="size-3" />
           </button>
           <span className="w-8 text-center text-xs">{quantity}</span>
-          <button className="grid size-8 place-items-center" onClick={() => change(product.id, 1)} aria-label={`Add one ${product.name}`}>
+          <button className="grid size-8 place-items-center transition-colors hover:bg-muted" onClick={() => change(product.id, 1)} aria-label={`Add one ${product.name}`}>
             <Plus className="size-3" />
           </button>
         </div>

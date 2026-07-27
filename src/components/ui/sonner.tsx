@@ -7,7 +7,13 @@ function Toaster({ ...props }: ToasterProps) {
     <Sonner
       theme="light"
       className="toaster group"
-      position="bottom-center"
+      position="bottom-left"
+      toastOptions={{
+        classNames: {
+          toast: "!rounded-none !border !border-border !bg-popover !text-popover-foreground !shadow-none",
+          title: "!text-[11px] !font-semibold !uppercase !tracking-[.16em]",
+        },
+      }}
       style={
         {
           "--normal-bg": "var(--popover)",
