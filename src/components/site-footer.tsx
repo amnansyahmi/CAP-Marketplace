@@ -15,7 +15,14 @@ export function SiteFooter() {
             Get new recipes and early access to seasonal blends, straight to your inbox.
           </p>
         </div>
-        <form className="flex flex-col gap-3 sm:flex-row">
+        {/*
+          Not wired to a mailing list yet. `method="dialog"` keeps the browser
+          from GET-submitting to the current URL, which reloaded the page and
+          wrote the subscriber's email into the address bar and history.
+          TODO: post to a real subscribe endpoint, or drop the form until there
+          is one — a button that silently does nothing is its own problem.
+        */}
+        <form method="dialog" className="flex flex-col gap-3 sm:flex-row">
           <div className="flex-1">
             <Label htmlFor="newsletter-email" className="sr-only">
               Email address
