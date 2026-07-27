@@ -1,3 +1,105 @@
 @import "tailwindcss";
-:root{--background:#f5f0e7;--foreground:#25241f;--muted:#e9e2d6;--muted-foreground:#716d63;--border:#d7cdbd;--ring:#9b3d29;--font-sans:Arial,sans-serif;--font-serif:Georgia,serif}
-*{box-sizing:border-box;border-color:var(--border)} html{scroll-behavior:smooth} body{margin:0;background:var(--background);color:var(--foreground);font-family:var(--font-sans);-webkit-font-smoothing:antialiased} button,a{cursor:pointer} a{text-decoration:none;color:inherit}.font-serif{font-family:var(--font-serif)}.bg-background{background:var(--background)}.text-foreground{color:var(--foreground)}.text-muted-foreground{color:var(--muted-foreground)}.bg-muted{background:var(--muted)}.border-border{border-color:var(--border)}.bg-foreground{background:var(--foreground)}.text-background{color:var(--background)}.ring-ring{--tw-ring-color:var(--ring)}.eyebrow{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.22em;color:#8d3e2d}.grain{opacity:.22;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E")}
+@import "tw-animate-css";
+
+:root {
+  --radius: 0rem;
+
+  --background: #f5f0e7;
+  --foreground: #25241f;
+
+  --card: #fbf6ee;
+  --card-foreground: #25241f;
+  --popover: #fbf6ee;
+  --popover-foreground: #25241f;
+
+  --primary: #9b3d29;
+  --primary-foreground: #fbf3ea;
+
+  --secondary: #25241f;
+  --secondary-foreground: #f5f0e7;
+
+  --muted: #e9e2d6;
+  --muted-foreground: #716d63;
+
+  --accent: #e7ddcd;
+  --accent-foreground: #25241f;
+
+  --destructive: #b3261e;
+  --destructive-foreground: #fbf3ea;
+
+  --border: #d7cdbd;
+  --input: #d7cdbd;
+  --ring: #9b3d29;
+
+  --font-sans: Arial, sans-serif;
+  --font-serif: Georgia, serif;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-sans: var(--font-sans);
+  --font-serif: var(--font-serif);
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius);
+  --radius-xl: var(--radius);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  button,
+  a {
+    cursor: pointer;
+  }
+  a {
+    text-decoration: none;
+    color: inherit;
+  }
+}
+
+@layer utilities {
+  .eyebrow {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.22em;
+    color: var(--primary);
+  }
+  .grain {
+    opacity: 0.22;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E");
+  }
+}
