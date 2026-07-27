@@ -61,7 +61,7 @@ export default async function OrderPage({
         <p className="mt-6 max-w-xl text-base leading-8 text-muted-foreground">{copy.body}</p>
 
         {status === "paid" && !isLive && (
-          <p className="mt-6 border border-border bg-muted/60 p-4 text-xs leading-6 text-muted-foreground">
+          <p className="mt-6 rounded-md border border-border bg-muted/60 p-4 text-xs leading-6 text-muted-foreground">
             <strong className="font-semibold">Simulated payment.</strong> CHIP credentials are not configured on this
             environment, so this order was marked paid without money changing hands. Set{" "}
             <code className="font-mono">CHIP_BRAND_ID</code> and <code className="font-mono">CHIP_SECRET_KEY</code> to
@@ -69,7 +69,7 @@ export default async function OrderPage({
           </p>
         )}
 
-        <div className="mt-12 border border-border bg-card p-6 lg:p-8">
+        <div className="mt-12 rounded-lg border border-border bg-card p-6 lg:p-8">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <h2 className="eyebrow">Order summary</h2>
             <Badge variant={status === "paid" ? "default" : "outline"}>{status.replace("_", " ")}</Badge>

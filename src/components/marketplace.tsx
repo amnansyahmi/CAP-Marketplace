@@ -2,10 +2,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
-import { toast } from "sonner";
 
 import { HERITAGE_NOTE, products, startingPrice, type Product } from "@/lib/products";
 import { useCart } from "@/lib/cart-context";
+import { useAddToBag } from "@/lib/use-add-to-bag";
 import { ZONE_RATES } from "@/lib/shipping";
 import { money } from "@/lib/utils";
 import { SiteHeader } from "@/components/site-header";
@@ -56,12 +56,7 @@ const faqs = [
 
 export default function Marketplace() {
   const [quickView, setQuickView] = useState<Product | null>(null);
-  const { add } = useCart();
-
-  const addToBag = (product: Product) => {
-    add(product);
-    toast(`${product.name} — added to bag`);
-  };
+  const addToBag = useAddToBag();
 
   return (
     <div className="min-h-screen overflow-hidden bg-background text-foreground">
@@ -132,7 +127,7 @@ function Hero() {
         </div>
         <div className="absolute left-7 top-7 border-l border-black/30 pl-4 text-xs leading-5">
           <strong className="block uppercase tracking-[.18em]">Signature collection</strong>
-          <span className="text-black/70">Three pastes, one pantry</span>
+          <span className="text-black/70">Three pastes, one range</span>
         </div>
       </div>
     </section>
@@ -160,7 +155,7 @@ function Collection({ onAdd, onQuickView }: { onAdd: (p: Product) => void; onQui
     <section id="collection" className="mx-auto max-w-[1440px] px-5 py-20 lg:px-10 lg:py-28">
       <div className="mb-12 flex items-end justify-between gap-8">
         <div>
-          <p className="eyebrow">The pantry edit</p>
+          <p className="eyebrow">The full range</p>
           <h2 className="mt-3 font-serif text-5xl tracking-[-.04em] lg:text-7xl">Choose your favourite.</h2>
         </div>
         <p className="hidden max-w-sm text-sm leading-6 text-muted-foreground md:block">
@@ -197,7 +192,7 @@ function ProductCard({ product, onAdd, onQuickView }: { product: Product; onAdd:
         <div className="pointer-events-none absolute left-4 top-4 text-2xl text-black/25">{product.arabic}</div>
         {quantity > 0 && (
           <span
-            className="pointer-events-none absolute right-4 top-4 z-[2] grid size-8 place-items-center bg-foreground text-xs text-background"
+            className="pointer-events-none absolute right-4 top-4 z-[2] grid size-8 place-items-center rounded-md bg-foreground text-xs text-background"
             aria-label={`${quantity} in bag`}
           >
             {quantity}
@@ -205,7 +200,7 @@ function ProductCard({ product, onAdd, onQuickView }: { product: Product; onAdd:
         )}
         <button
           onClick={onQuickView}
-          className="absolute inset-x-4 bottom-4 z-[2] border border-border bg-background/92 py-2.5 text-[10px] font-semibold uppercase tracking-[.16em] opacity-0 backdrop-blur transition-opacity duration-300 group-hover:opacity-100 focus-visible:opacity-100"
+          className="absolute inset-x-4 bottom-4 z-[2] rounded-md border border-border bg-background/92 py-2.5 text-[10px] font-semibold uppercase tracking-[.16em] opacity-0 backdrop-blur transition-opacity duration-300 group-hover:opacity-100 focus-visible:opacity-100"
         >
           Quick view<span className="sr-only"> {product.name}</span>
         </button>
@@ -251,7 +246,7 @@ function QuickViewDialog({
 }) {
   return (
     <Dialog open={!!product} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl gap-0 p-0">
+      <DialogContent className="max-w-2xl gap-0 overflow-hidden p-0">
         {product && (
           <div className="grid sm:grid-cols-2">
             <div className="relative aspect-square sm:aspect-auto" style={{ backgroundColor: `${product.accent}14` }}>
@@ -299,7 +294,7 @@ function Story() {
   return (
     <section id="story" className="bg-[#e7ddcd] px-5 py-20 lg:px-10 lg:py-28">
       <div className="mx-auto grid max-w-[1360px] gap-14 lg:grid-cols-2 lg:items-center">
-        <div className="relative aspect-[4/3] overflow-hidden bg-[#d8c8ac]">
+        <div className="relative aspect-[4/3] overflow-hidden rounded-lg bg-[#d8c8ac]">
           <div className="absolute inset-0 grain" />
           <div className="absolute right-[6%] top-1/2 -translate-y-1/2 font-serif text-[9rem] leading-none text-black/[.06] lg:text-[13rem]">
             {hero.arabic}

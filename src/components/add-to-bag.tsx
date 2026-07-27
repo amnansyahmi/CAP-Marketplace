@@ -2,20 +2,19 @@
 
 import { useState } from "react";
 import { Minus, Plus } from "lucide-react";
-import { toast } from "sonner";
 
-import { useCart } from "@/lib/cart-context";
+import { useAddToBag } from "@/lib/use-add-to-bag";
 import type { Product } from "@/lib/products";
 import { Button } from "@/components/ui/button";
 
 /** Quantity picker + add button used on the product detail page. */
 export function AddToBag({ product }: { product: Product }) {
   const [quantity, setQuantity] = useState(1);
-  const { add } = useCart();
+  const addToBag = useAddToBag();
 
   return (
     <div className="flex flex-col gap-4 sm:flex-row">
-      <div className="flex h-13 w-fit items-center border border-border">
+      <div className="flex h-13 w-fit items-center overflow-hidden rounded-md border border-border">
         <button
           type="button"
           className="grid size-12 place-items-center transition-colors hover:bg-muted disabled:opacity-40"
@@ -42,10 +41,7 @@ export function AddToBag({ product }: { product: Product }) {
         variant="warm"
         size="lg"
         className="flex-1"
-        onClick={() => {
-          add(product, quantity);
-          toast(`${product.name} — ${quantity} added to bag`);
-        }}
+        onClick={() => addToBag(product, quantity)}
       >
         Add to bag
       </Button>

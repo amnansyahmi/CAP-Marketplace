@@ -15,7 +15,7 @@ function SelectTrigger({ className, children, ...props }: React.ComponentProps<t
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       className={cn(
-        "flex h-11 w-full items-center justify-between gap-2 border border-input bg-transparent px-3.5 text-sm outline-none",
+        "flex h-11 w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3.5 text-sm outline-none",
         "data-[placeholder]:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40",
         "aria-invalid:border-destructive aria-invalid:ring-destructive/40 disabled:pointer-events-none disabled:opacity-50",
         className,
@@ -37,7 +37,7 @@ function SelectContent({ className, children, position = "popper", ...props }: R
         data-slot="select-content"
         position={position}
         className={cn(
-          "relative z-50 max-h-72 min-w-[8rem] overflow-hidden border border-border bg-popover text-popover-foreground shadow-xl",
+          "relative z-50 max-h-72 min-w-[8rem] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-xl",
           "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
           position === "popper" && "w-[var(--radix-select-trigger-width)]",
           className,
@@ -55,7 +55,7 @@ function SelectItem({ className, children, ...props }: React.ComponentProps<type
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "relative flex w-full cursor-pointer select-none items-center gap-2 py-2 pl-8 pr-2 text-sm outline-none",
+        "relative flex w-full cursor-pointer select-none items-center gap-2 rounded-sm py-2 pl-8 pr-2 text-sm outline-none",
         "data-[highlighted]:bg-muted data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
         className,
       )}

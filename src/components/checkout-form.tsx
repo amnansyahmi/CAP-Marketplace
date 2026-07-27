@@ -248,13 +248,13 @@ export function CheckoutForm() {
       </div>
 
       <aside className="lg:sticky lg:top-28 lg:self-start">
-        <div className="border border-border bg-card p-6">
+        <div className="rounded-lg border border-border bg-card p-6">
           <h2 className="eyebrow">Order summary</h2>
           <ul className="mt-6 space-y-5">
             {lines.map(({ product, quantity }) => (
               <li key={product.id} className="flex gap-4">
                 <div
-                  className="relative size-16 shrink-0 overflow-hidden"
+                  className="relative size-16 shrink-0 overflow-hidden rounded-md"
                   style={{ backgroundColor: `${product.accent}14` }}
                 >
                   <Image src={product.image} alt="" fill sizes="64px" className="object-contain p-1" />
@@ -306,7 +306,7 @@ export function CheckoutForm() {
           </div>
 
           {formError && (
-            <p role="alert" className="mt-5 border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
+            <p role="alert" className="mt-5 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
               {formError}
             </p>
           )}

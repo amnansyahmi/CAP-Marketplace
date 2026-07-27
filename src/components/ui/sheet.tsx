@@ -53,7 +53,7 @@ function SheetContent({
         {...props}
       >
         {children}
-        <SheetPrimitive.Close className="absolute right-5 top-5 grid size-9 place-items-center border border-border bg-background transition-colors hover:bg-muted">
+        <SheetPrimitive.Close className="absolute right-5 top-5 grid size-9 place-items-center rounded-md border border-border bg-background transition-colors hover:bg-muted">
           <X className="size-4" />
           <span className="sr-only">Close</span>
         </SheetPrimitive.Close>

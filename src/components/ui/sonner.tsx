@@ -10,12 +10,16 @@ function Toaster({ ...props }: ToasterProps) {
       position="bottom-left"
       toastOptions={{
         classNames: {
-          toast: "!rounded-none !border !border-border !bg-popover !text-popover-foreground !shadow-none",
-          title: "!text-[11px] !font-semibold !uppercase !tracking-[.16em]",
+          toast: "!rounded-md !border !border-border !bg-popover !text-popover-foreground !shadow-none",
+          title: "!text-[11px] !font-semibold !uppercase !tracking-[.1em]",
+          actionButton: "!rounded !bg-primary !text-primary-foreground !text-[11px] !font-medium",
         },
       }}
       style={
         {
+          // Wider than the 356px default so the letterspaced title and the
+          // "View bag" action sit on one line.
+          "--width": "25rem",
           "--normal-bg": "var(--popover)",
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",

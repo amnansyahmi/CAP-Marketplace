@@ -6,7 +6,7 @@ import { SiteHeader } from "@/components/site-header";
 
 export const metadata: Metadata = {
   title: "Checkout",
-  description: "Complete your Chef Ammar Pantry order.",
+  description: "Complete your Chef Ammar Product order.",
 };
 
 export default function CheckoutPage() {

@@ -10,7 +10,7 @@ const sans = Manrope({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
-  title: { default: "Chef Ammar Pantry", template: "%s · Chef Ammar Pantry" },
+  title: { default: "Chef Ammar Product", template: "%s · Chef Ammar Product" },
   description: "Arabian cooking pastes made for generous tables. Kabsah, Mandy and Briyani, delivered across Malaysia.",
 };
 

@@ -20,10 +20,10 @@ import {
 } from "@/components/ui/sheet";
 
 export function CartSheet() {
-  const { lines, count, subtotal, hydrated } = useCart();
+  const { lines, count, subtotal, hydrated, bagOpen, setBagOpen } = useCart();
 
   return (
-    <Sheet>
+    <Sheet open={bagOpen} onOpenChange={setBagOpen}>
       <SheetTrigger asChild>
         <button className="text-sm tracking-[.02em]">
           Bag <span className="text-muted-foreground">({hydrated ? count : 0})</span>
@@ -81,7 +81,7 @@ function CartRow({ line }: { line: CartLine }) {
   return (
     <div className="flex gap-4">
       <div
-        className="relative size-24 shrink-0 overflow-hidden"
+        className="relative size-24 shrink-0 overflow-hidden rounded-md"
         style={{ backgroundColor: `${product.accent}14` }}
       >
         <Image src={product.image} alt="" fill sizes="96px" className="object-contain p-1.5" />
@@ -98,7 +98,7 @@ function CartRow({ line }: { line: CartLine }) {
           </div>
           <strong className="text-sm">{money(product.price * quantity)}</strong>
         </div>
-        <div className="flex w-fit items-center border border-border">
+        <div className="flex w-fit items-center overflow-hidden rounded-md border border-border">
           <button
             className="grid size-8 place-items-center transition-colors hover:bg-muted"
             onClick={() => change(product.id, -1)}

@@ -72,7 +72,7 @@ the current API reference first.
 - `paid` is terminal — a late failure webhook cannot silently reverse a
   settled order.
 
-## Pantry help (offline answer bot)
+## Product help (offline answer bot)
 
 A support bot that answers customer questions with **no LLM, no API calls and
 no per-message cost**. Answers live as markdown in `content/help/`; the browser

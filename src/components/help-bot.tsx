@@ -74,7 +74,7 @@ export function HelpBot({ docs }: { docs: HelpDoc[] }) {
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-controls="help-panel"
-        className="fixed bottom-5 right-5 z-50 flex items-center gap-2 border border-border bg-secondary px-5 py-3 text-sm text-secondary-foreground shadow-lg transition-colors hover:bg-secondary/90 focus-visible:ring-2 focus-visible:ring-ring"
+        className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-full border border-border bg-secondary px-5 py-3 text-sm text-secondary-foreground shadow-lg transition-colors hover:bg-secondary/90 focus-visible:ring-2 focus-visible:ring-ring"
       >
         {open ? <X className="size-4" /> : <MessageCircle className="size-4" />}
         {open ? "Close" : "Ask a question"}
@@ -85,11 +85,11 @@ export function HelpBot({ docs }: { docs: HelpDoc[] }) {
           id="help-panel"
           ref={panelRef}
           role="dialog"
-          aria-label="Pantry help"
-          className="fixed bottom-20 right-5 z-50 flex h-[min(34rem,calc(100vh-7rem))] w-[min(26rem,calc(100vw-2.5rem))] flex-col border border-border bg-background shadow-2xl"
+          aria-label="Product help"
+          className="fixed bottom-20 right-5 z-50 flex h-[min(34rem,calc(100vh-7rem))] w-[min(26rem,calc(100vw-2.5rem))] flex-col rounded-lg border border-border bg-background shadow-2xl"
         >
           <div className="border-b border-border p-5">
-            <h2 className="font-serif text-2xl">Pantry help</h2>
+            <h2 className="font-serif text-2xl">Product help</h2>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
               Answers come straight from our help notes — no AI, so nothing here is invented.
             </p>
@@ -106,7 +106,7 @@ export function HelpBot({ docs }: { docs: HelpDoc[] }) {
                     <li key={d.id}>
                       <button
                         onClick={() => ask(d.title)}
-                        className="w-full border border-border px-3.5 py-2.5 text-left text-sm transition-colors hover:bg-muted"
+                        className="w-full rounded-md border border-border px-3.5 py-2.5 text-left text-sm transition-colors hover:bg-muted"
                       >
                         {d.title}
                       </button>
@@ -118,7 +118,7 @@ export function HelpBot({ docs }: { docs: HelpDoc[] }) {
               <div className="space-y-5">
                 {turns.map((turn) =>
                   turn.role === "user" ? (
-                    <p key={turn.id} className="ml-auto w-fit max-w-[85%] bg-secondary px-3.5 py-2 text-sm text-secondary-foreground">
+                    <p key={turn.id} className="ml-auto w-fit max-w-[85%] rounded-md bg-secondary px-3.5 py-2 text-sm text-secondary-foreground">
                       {turn.text}
                     </p>
                   ) : (
@@ -161,7 +161,7 @@ function AnswerBubble({ result, onAsk }: { result: HelpAnswer; onAsk: (q: string
   // Answers are announced politely so screen-reader users hear the reply
   // without the input losing focus.
   return (
-    <div aria-live="polite" className="max-w-[92%] border border-border bg-card p-4">
+    <div aria-live="polite" className="max-w-[92%] rounded-lg border border-border bg-card p-4">
       {result.status === "answered" ? (
         <>
           <h3 className="font-serif text-xl leading-snug">{result.match.doc.title}</h3>
@@ -203,7 +203,7 @@ function AnswerBubble({ result, onAsk }: { result: HelpAnswer; onAsk: (q: string
           </ul>
         </>
       ) : (
-        <p className="text-sm">Ask me anything about the pantry.</p>
+        <p className="text-sm">Ask me anything about the products.</p>
       )}
     </div>
   );

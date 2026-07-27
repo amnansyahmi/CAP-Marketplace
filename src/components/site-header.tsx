@@ -36,7 +36,7 @@ export function SiteHeader() {
         <MobileNav />
         <Link href="/" className="flex items-baseline gap-2">
           <span className="font-serif text-[1.65rem] tracking-[-.04em]">Chef Ammar</span>
-          <span className="text-[10px] font-semibold uppercase tracking-[.22em] text-muted-foreground">Pantry</span>
+          <span className="text-[10px] font-semibold uppercase tracking-[.22em] text-muted-foreground">Product</span>
         </Link>
         <nav className="hidden items-center gap-8 text-sm lg:flex">
           {navLinks.map((l) => (

@@ -55,7 +55,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
       </div>
 
       <section className="mx-auto grid max-w-[1440px] gap-12 px-5 py-10 lg:grid-cols-2 lg:gap-20 lg:px-10 lg:py-16">
-        <div className="relative aspect-[4/5] overflow-hidden" style={{ backgroundColor: `${product.accent}14` }}>
+        <div className="relative aspect-[4/5] overflow-hidden rounded-lg" style={{ backgroundColor: `${product.accent}14` }}>
           <div className="absolute inset-0 grain" />
           <div className="absolute left-6 top-6 font-serif text-6xl leading-none text-black/[.08]">{product.arabic}</div>
           <Image
@@ -141,10 +141,10 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
             <Link
               key={p.id}
               href={`/products/${p.slug}`}
-              className="group flex items-center gap-6 border border-border p-5 transition-colors hover:bg-muted/50"
+              className="group flex items-center gap-6 rounded-lg border border-border p-5 transition-colors hover:bg-muted/50"
             >
               <div
-                className="relative size-28 shrink-0 overflow-hidden"
+                className="relative size-28 shrink-0 overflow-hidden rounded-md"
                 style={{ backgroundColor: `${p.accent}14` }}
               >
                 <Image src={p.image} alt="" fill sizes="112px" className="object-contain p-2" />
