@@ -72,30 +72,6 @@ the current API reference first.
 - `paid` is terminal — a late failure webhook cannot silently reverse a
   settled order.
 
-## Product help (offline answer bot)
-
-A support bot that answers customer questions with **no LLM, no API calls and
-no per-message cost**. Answers live as markdown in `content/help/`; the browser
-ranks them with BM25 and shows the best match.
-
-It *retrieves* a written answer rather than generating one, so it cannot invent
-a price or a policy — and when nothing clears the confidence threshold it says
-so instead of guessing. Verified in-browser to issue zero network requests
-while answering.
-
-- **Add or edit an answer:** drop a `.md` file in `content/help/` with `title`,
-  `category` and `keywords` frontmatter. Nothing else to register.
-- **Live figures:** answers may use `{{delivery.west}}`, `{{price.from}}`,
-  `{{nutrition.energy}}` and similar. These resolve at build from
-  `shipping.ts`/`products.ts`, so a price change cannot leave the FAQ stale. An
-  unknown placeholder fails the build rather than shipping `{{...}}`.
-- **Phrasing:** `src/lib/help/tokenize.ts` maps customer wording onto canonical
-  terms, so "postage", "courier" and "shipping" all reach the delivery answer.
-
-Run `npm test` after changing the content or the engine — the suite asserts
-that real questions route to the right document, that typos still match, and
-that off-topic questions are declined.
-
 ## Product assets
 
 `public/products/*.webp` are transparent cutouts used throughout the site;

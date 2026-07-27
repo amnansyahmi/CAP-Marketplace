@@ -6,7 +6,6 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "tsx --test \"src/**/*.test.ts\"",
     "lint": "next lint"
   },
   "dependencies": {
@@ -34,7 +33,6 @@
     "eslint": "latest",
     "eslint-config-next": "latest",
     "tailwindcss": "latest",
-    "tsx": "^4.23.1",
     "typescript": "latest"
   }
 }

@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Cormorant_Garamond, Manrope } from "next/font/google";
 import "./globals.css";
 import { CartProvider } from "@/lib/cart-context";
-import { HelpBotMount } from "@/components/help-bot-mount";
 import { Toaster } from "@/components/ui/sonner";
 
 const serif = Cormorant_Garamond({ subsets: ["latin"], variable: "--font-serif", weight: ["500", "600"] });
@@ -20,7 +19,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${serif.variable} ${sans.variable}`}>
         <CartProvider>
           {children}
-          <HelpBotMount />
           <Toaster />
         </CartProvider>
       </body>
