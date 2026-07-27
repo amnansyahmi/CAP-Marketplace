@@ -9,6 +9,7 @@ built with Next.js App Router, TypeScript, Tailwind CSS v4 and shadcn/ui.
 npm install
 cp .env.example .env.local   # optional; the shop runs without it
 npm run dev
+npm test                     # order persistence and money handling
 ```
 
 Open http://localhost:3000.
@@ -37,6 +38,40 @@ server:
 | --- | --- | --- | --- |
 | Semenanjung Malaysia | all Peninsular states | RM 8.00 | RM 150 |
 | East Malaysia | Sabah, Sarawak, Labuan | RM 18.00 | RM 250 |
+
+## Orders and the database
+
+Orders are stored in Postgres.
+
+| `DATABASE_URL` | Driver | Use |
+| --- | --- | --- |
+| set | `pg` | Supabase, Neon, RDS, any Postgres — **required in deployment** |
+| unset | PGlite | Local development. Real Postgres compiled to WASM, stored under `.data/` |
+
+Both are Postgres, so the same SQL runs either way and the test suite exercises
+the statements production will run. PGlite writes to the local filesystem, which
+on a serverless host is ephemeral and per-instance — set `DATABASE_URL` anywhere
+it is deployed.
+
+To use Supabase, copy the connection string from Project settings → Database
+(the pooled port 6543 URI on serverless hosts) into `DATABASE_URL`. The schema
+in `src/lib/db/schema.ts` is created on first connection.
+
+The schema is applied with `CREATE TABLE IF NOT EXISTS`, which is fine now but
+will not alter an existing table — move to versioned migrations before changing
+the shape of a live database.
+
+### What the store guarantees
+
+- An order and its line items are written in **one transaction**, so an order
+  can never exist without the things being bought.
+- Money is `numeric(10,2)` — exact decimal, never binary float.
+- Order references are `UNIQUE`, and a collision retries rather than failing the
+  customer's checkout.
+- **A settled order cannot be reversed.** `setStatus` enforces it inside the
+  `UPDATE` (`WHERE ... AND (status <> 'paid' OR $2 = 'paid')`) rather than in
+  application code, so two gateway callbacks arriving together cannot both pass
+  the check and write.
 
 ## Payments
 
@@ -83,10 +118,12 @@ from its label colour band.
 
 ## Still to do
 
-1. **Persist orders.** `src/lib/orders.ts` currently uses an in-process `Map`:
-   orders do not survive a restart and are not shared between serverless
-   instances. Reimplement `OrderStore` against Supabase/Postgres — no callers
-   need to change.
-2. Send order confirmation emails.
-3. Admin order management and weekly commission reporting.
-4. Lifestyle/recipe photography for the story section.
+1. **Verify the CHIP integration** against a live merchant account — see
+   Payments above.
+2. Send order confirmation emails. Customers currently get a reference number on
+   screen and nothing else.
+3. Stock levels. Nothing stops an order for more jars than exist.
+4. Rate limiting on `POST /api/orders`.
+5. Wire up or remove the footer newsletter form; it currently does nothing.
+6. Admin order management and weekly commission reporting.
+7. Lifestyle/recipe photography for the story section.

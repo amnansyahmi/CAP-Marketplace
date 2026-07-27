@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { verifyWebhookSignature } from "@/lib/chip";
-import { canTransition, orderStore, type OrderStatus } from "@/lib/orders";
+import { orderStore, type OrderStatus } from "@/lib/orders";
 
 export const dynamic = "force-dynamic";
 
@@ -46,15 +46,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Order not found." }, { status: 404 });
   }
 
-  if (!canTransition(order.status, nextStatus)) {
+  // The rule that a settled order cannot be moved lives inside the UPDATE, not
+  // here: checking it in JavaScript first would let two callbacks arriving
+  // together both read `pending_payment` and both decide they may write.
+  // A refused change returns undefined.
+  const updated = await orderStore.setStatus(order.id, nextStatus);
+
+  if (!updated) {
     // e.g. a late failure arriving after the payment already settled.
     return NextResponse.json({ status: order.status, ignored: "terminal" });
   }
 
-  await orderStore.update(order.id, {
-    status: nextStatus,
-    ...(nextStatus === "paid" ? { paidAt: new Date().toISOString() } : {}),
-  });
-
-  return NextResponse.json({ status: nextStatus });
+  return NextResponse.json({ status: updated.status });
 }

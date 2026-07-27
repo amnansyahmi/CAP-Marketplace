@@ -2,13 +2,7 @@ import { NextResponse } from "next/server";
 
 import { createPurchase } from "@/lib/chip";
 import { hasErrors, validateCheckout, type CheckoutInput } from "@/lib/checkout-schema";
-import {
-  newOrderId,
-  newOrderReference,
-  orderStore,
-  type Order,
-  type OrderItem,
-} from "@/lib/orders";
+import { orderStore, type NewOrder, type OrderItem } from "@/lib/orders";
 import { productById } from "@/lib/products";
 import { quoteShipping, round } from "@/lib/shipping";
 
@@ -60,10 +54,7 @@ export async function POST(request: Request) {
   }
   const total = round(subtotal + shippingQuote.fee);
 
-  const order: Order = {
-    id: newOrderId(),
-    reference: newOrderReference(),
-    status: "pending_payment",
+  const draft: NewOrder = {
     items,
     customer: {
       fullName: body.fullName!.trim(),
@@ -82,10 +73,11 @@ export async function POST(request: Request) {
     shipping: shippingQuote.fee,
     total,
     currency: "MYR",
-    createdAt: new Date().toISOString(),
   };
 
-  await orderStore.create(order);
+  // Persisted before contacting the gateway, so a payment can always be traced
+  // back to an order even if the process dies mid-request.
+  const order = await orderStore.create(draft);
 
   const origin = baseUrl(request);
   try {
@@ -95,12 +87,12 @@ export async function POST(request: Request) {
       callbackUrl: `${origin}/api/webhooks/chip`,
     });
 
-    await orderStore.update(order.id, {
+    await orderStore.attachPayment(order.id, {
       paymentId: purchase.paymentId,
       paymentUrl: purchase.checkoutUrl,
       // Without a live gateway there is no webhook to confirm payment, so the
-      // simulated order is marked paid here to keep the flow demonstrable.
-      ...(purchase.live ? {} : { status: "paid" as const, paidAt: new Date().toISOString() }),
+      // simulated order is settled here to keep the flow demonstrable.
+      markPaid: !purchase.live,
     });
 
     return NextResponse.json({
@@ -109,7 +101,7 @@ export async function POST(request: Request) {
       simulated: !purchase.live,
     });
   } catch (error) {
-    await orderStore.update(order.id, { status: "failed" });
+    await orderStore.setStatus(order.id, "failed");
     console.error("Failed to create CHIP purchase", error);
     return NextResponse.json(
       { error: "We could not start the payment. Please try again." },

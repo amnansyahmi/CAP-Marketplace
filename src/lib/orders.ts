@@ -1,14 +1,19 @@
 /**
- * Order model and store.
+ * Order model and persistence.
  *
- * The store is deliberately kept behind a small interface: today it is an
- * in-process Map, which is enough to run the whole purchase flow locally but
- * does NOT survive a restart and is not shared between serverless instances.
- * Swapping in Supabase/Postgres means reimplementing `OrderStore` only — no
- * caller changes.
+ * Backed by Postgres — see `src/lib/db/client.ts` for driver selection.
+ *
+ * The interface is deliberately narrow. An earlier version exposed a generic
+ * `update(id, patch)`, which forced callers to read an order, decide in
+ * JavaScript whether a transition was allowed, then write it back. That
+ * read-then-write is a race: two gateway callbacks arriving together can both
+ * read `pending_payment` and both believe they may proceed. Status changes now
+ * go through `setStatus`, which enforces the rule inside the UPDATE.
  */
 
 import { randomUUID } from "node:crypto";
+
+import { getDb } from "@/lib/db/client";
 
 export type OrderStatus = "pending_payment" | "paid" | "failed" | "cancelled";
 
@@ -21,11 +26,7 @@ export type OrderItem = {
   lineTotal: number;
 };
 
-export type Customer = {
-  fullName: string;
-  email: string;
-  phone: string;
-};
+export type Customer = { fullName: string; email: string; phone: string };
 
 export type DeliveryAddress = {
   line1: string;
@@ -48,70 +49,241 @@ export type Order = {
   shipping: number;
   total: number;
   currency: "MYR";
-  /** CHIP purchase id, once a payment has been created for this order. */
   paymentId?: string;
   paymentUrl?: string;
   createdAt: string;
   paidAt?: string;
 };
 
+/** A new order before it has an id or reference — the store assigns both. */
+export type NewOrder = Omit<Order, "id" | "reference" | "createdAt" | "status"> & {
+  status?: OrderStatus;
+};
+
 export interface OrderStore {
-  create(order: Order): Promise<Order>;
+  create(order: NewOrder): Promise<Order>;
   byReference(reference: string): Promise<Order | undefined>;
   byPaymentId(paymentId: string): Promise<Order | undefined>;
-  update(id: string, patch: Partial<Order>): Promise<Order | undefined>;
-}
-
-class MemoryOrderStore implements OrderStore {
-  // Survives hot reloads in dev by hanging off globalThis rather than a module local.
-  private get orders(): Map<string, Order> {
-    const g = globalThis as { __chefAmmarOrders?: Map<string, Order> };
-    if (!g.__chefAmmarOrders) g.__chefAmmarOrders = new Map();
-    return g.__chefAmmarOrders;
-  }
-
-  async create(order: Order) {
-    this.orders.set(order.id, order);
-    return order;
-  }
-
-  async byReference(reference: string) {
-    return [...this.orders.values()].find((o) => o.reference === reference);
-  }
-
-  async byPaymentId(paymentId: string) {
-    return [...this.orders.values()].find((o) => o.paymentId === paymentId);
-  }
-
-  async update(id: string, patch: Partial<Order>) {
-    const existing = this.orders.get(id);
-    if (!existing) return undefined;
-    const next = { ...existing, ...patch };
-    this.orders.set(id, next);
-    return next;
-  }
-}
-
-export const orderStore: OrderStore = new MemoryOrderStore();
-
-export function newOrderId() {
-  return randomUUID();
+  /** Records the gateway payment, optionally settling the order in the same write. */
+  attachPayment(
+    id: string,
+    payment: { paymentId: string; paymentUrl: string; markPaid?: boolean },
+  ): Promise<Order | undefined>;
+  /** Atomic status change. Returns undefined when the change was refused. */
+  setStatus(id: string, status: OrderStatus): Promise<Order | undefined>;
 }
 
 /** e.g. CA-7F3K9Q — short enough to read down the phone. */
 export function newOrderReference() {
-  const alphabet = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // no I/O to avoid misreads
+  const alphabet = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // no I/O, to avoid misreads
   let out = "";
   for (let i = 0; i < 6; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
   return `CA-${out}`;
 }
 
+/** Postgres unique-violation. */
+const UNIQUE_VIOLATION = "23505";
+
+type OrderRow = {
+  id: string;
+  reference: string;
+  status: OrderStatus;
+  customer_full_name: string;
+  customer_email: string;
+  customer_phone: string;
+  address_line1: string;
+  address_line2: string | null;
+  address_postcode: string;
+  address_city: string;
+  address_state: string;
+  notes: string | null;
+  subtotal: string;
+  shipping: string;
+  total: string;
+  currency: string;
+  payment_id: string | null;
+  payment_url: string | null;
+  created_at: Date | string;
+  paid_at: Date | string | null;
+};
+
+type ItemRow = {
+  product_id: string;
+  name: string;
+  unit_price: string;
+  quantity: number;
+  line_total: string;
+};
+
 /**
- * Paid is terminal for our purposes: once money has landed, a late `failed`
- * webhook must not silently undo it.
+ * Postgres returns `numeric` as a string to avoid the precision loss that
+ * float conversion would cause. The database stays the exact record; these
+ * numbers are for display and arithmetic in the app.
  */
-export function canTransition(from: OrderStatus, to: OrderStatus) {
-  if (from === to) return true;
-  if (from === "paid") return false;
-  return true;
+const amount = (value: string) => Number(value);
+const iso = (value: Date | string) => (value instanceof Date ? value.toISOString() : new Date(value).toISOString());
+
+function rowToOrder(row: OrderRow, items: ItemRow[]): Order {
+  return {
+    id: row.id,
+    reference: row.reference,
+    status: row.status,
+    items: items.map((i) => ({
+      productId: i.product_id,
+      name: i.name,
+      unitPrice: amount(i.unit_price),
+      quantity: i.quantity,
+      lineTotal: amount(i.line_total),
+    })),
+    customer: {
+      fullName: row.customer_full_name,
+      email: row.customer_email,
+      phone: row.customer_phone,
+    },
+    address: {
+      line1: row.address_line1,
+      line2: row.address_line2 ?? undefined,
+      postcode: row.address_postcode,
+      city: row.address_city,
+      state: row.address_state,
+    },
+    notes: row.notes ?? undefined,
+    subtotal: amount(row.subtotal),
+    shipping: amount(row.shipping),
+    total: amount(row.total),
+    currency: row.currency as "MYR",
+    paymentId: row.payment_id ?? undefined,
+    paymentUrl: row.payment_url ?? undefined,
+    createdAt: iso(row.created_at),
+    paidAt: row.paid_at ? iso(row.paid_at) : undefined,
+  };
 }
+
+const SELECT_ORDER = `SELECT * FROM orders WHERE `;
+
+class PostgresOrderStore implements OrderStore {
+  private async hydrate(rows: OrderRow[]): Promise<Order | undefined> {
+    const row = rows[0];
+    if (!row) return undefined;
+    const db = await getDb();
+    const items = await db.query<ItemRow>(
+      `SELECT product_id, name, unit_price, quantity, line_total
+         FROM order_items WHERE order_id = $1 ORDER BY position`,
+      [row.id],
+    );
+    return rowToOrder(row, items.rows);
+  }
+
+  async create(order: NewOrder): Promise<Order> {
+    const db = await getDb();
+
+    // The reference is random and unique-constrained; on the rare collision,
+    // generate another rather than failing the customer's checkout.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const id = randomUUID();
+      const reference = newOrderReference();
+      try {
+        return await db.transaction(async (tx) => {
+          const inserted = await tx.query<OrderRow>(
+            `INSERT INTO orders (
+               id, reference, status,
+               customer_full_name, customer_email, customer_phone,
+               address_line1, address_line2, address_postcode, address_city, address_state,
+               notes, subtotal, shipping, total, currency
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+             RETURNING *`,
+            [
+              id,
+              reference,
+              order.status ?? "pending_payment",
+              order.customer.fullName,
+              order.customer.email,
+              order.customer.phone,
+              order.address.line1,
+              order.address.line2 ?? null,
+              order.address.postcode,
+              order.address.city,
+              order.address.state,
+              order.notes ?? null,
+              order.subtotal,
+              order.shipping,
+              order.total,
+              order.currency,
+            ],
+          );
+
+          // Items go in the same transaction: an order without its lines is
+          // worse than no order at all.
+          for (const [position, item] of order.items.entries()) {
+            await tx.query(
+              `INSERT INTO order_items (order_id, product_id, name, unit_price, quantity, line_total, position)
+               VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+              [id, item.productId, item.name, item.unitPrice, item.quantity, item.lineTotal, position],
+            );
+          }
+
+          return rowToOrder(inserted.rows[0], [
+            ...order.items.map((i) => ({
+              product_id: i.productId,
+              name: i.name,
+              unit_price: String(i.unitPrice),
+              quantity: i.quantity,
+              line_total: String(i.lineTotal),
+            })),
+          ]);
+        });
+      } catch (error) {
+        const code = (error as { code?: string }).code;
+        if (code === UNIQUE_VIOLATION && attempt < 4) continue;
+        throw error;
+      }
+    }
+    throw new Error("Could not allocate a unique order reference.");
+  }
+
+  async byReference(reference: string) {
+    const db = await getDb();
+    const rows = await db.query<OrderRow>(`${SELECT_ORDER}reference = $1`, [reference]);
+    return this.hydrate(rows.rows);
+  }
+
+  async byPaymentId(paymentId: string) {
+    const db = await getDb();
+    const rows = await db.query<OrderRow>(`${SELECT_ORDER}payment_id = $1`, [paymentId]);
+    return this.hydrate(rows.rows);
+  }
+
+  async attachPayment(id: string, payment: { paymentId: string; paymentUrl: string; markPaid?: boolean }) {
+    const db = await getDb();
+    const rows = await db.query<OrderRow>(
+      `UPDATE orders
+          SET payment_id  = $2,
+              payment_url = $3,
+              status      = CASE WHEN $4::boolean THEN 'paid' ELSE status END,
+              paid_at     = CASE WHEN $4::boolean THEN now() ELSE paid_at END
+        WHERE id = $1
+        RETURNING *`,
+      [id, payment.paymentId, payment.paymentUrl, payment.markPaid ?? false],
+    );
+    return this.hydrate(rows.rows);
+  }
+
+  async setStatus(id: string, status: OrderStatus) {
+    const db = await getDb();
+    // `status <> 'paid'` is the whole point: a settled order cannot be moved
+    // by a late failure or a duplicate callback, and because the check lives
+    // in the UPDATE, two concurrent callbacks cannot both pass it.
+    const rows = await db.query<OrderRow>(
+      `UPDATE orders
+          SET status  = $2,
+              paid_at = CASE WHEN $2 = 'paid' THEN COALESCE(paid_at, now()) ELSE paid_at END
+        WHERE id = $1
+          AND (status <> 'paid' OR $2 = 'paid')
+        RETURNING *`,
+      [id, status],
+    );
+    return this.hydrate(rows.rows);
+  }
+}
+
+export const orderStore: OrderStore = new PostgresOrderStore();
