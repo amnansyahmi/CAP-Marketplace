@@ -37,6 +37,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <Link href="/admin/orders" className="transition-colors hover:text-primary">
                 Orders
               </Link>
+              <Link href="/admin/affiliates" className="transition-colors hover:text-primary">
+                Affiliates
+              </Link>
               <Link href="/" className="transition-colors hover:text-primary">
                 View shop
               </Link>

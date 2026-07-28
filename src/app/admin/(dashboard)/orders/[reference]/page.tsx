@@ -190,6 +190,36 @@ export default async function AdminOrderPage({
             )}
           </section>
 
+          {order.affiliateCode && (
+            <section className="rounded-lg border border-border bg-card p-6">
+              <h2 className="eyebrow">Referred by</h2>
+              <p className="mt-4 text-sm">
+                <Link href={`/admin/affiliates/${order.affiliateCode}`} className="font-mono text-primary hover:underline">
+                  {order.affiliateCode}
+                </Link>
+              </p>
+              <dl className="mt-4 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Commission</dt>
+                  <dd className="font-semibold">
+                    {order.commissionAmount != null ? money(order.commissionAmount) : "—"}
+                  </dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Rate at order</dt>
+                  <dd>{order.commissionRate != null ? `${(order.commissionRate * 100).toFixed(1)}%` : "—"}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Status</dt>
+                  <dd>{order.commissionStatus}</dd>
+                </div>
+              </dl>
+              <p className="mt-4 text-xs leading-5 text-muted-foreground">
+                Calculated on the subtotal, excluding delivery.
+              </p>
+            </section>
+          )}
+
           {order.status === "pending_payment" && (
             <section className="rounded-lg border border-border bg-card p-6">
               <h2 className="eyebrow">Cancel</h2>

@@ -1,5 +1,8 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
+import { affiliateStore, commissionFor } from "@/lib/affiliates";
+import { REFERRAL_COOKIE } from "@/middleware";
 import { createPurchase } from "@/lib/chip";
 import { hasErrors, validateCheckout, type CheckoutInput } from "@/lib/checkout-schema";
 import { orderStore, type NewOrder, type OrderItem } from "@/lib/orders";
@@ -54,7 +57,25 @@ export async function POST(request: Request) {
   }
   const total = round(subtotal + shippingQuote.fee);
 
+  // Referral attribution. The cookie only carries a claimed code; it is looked
+  // up here and ignored unless it belongs to an active affiliate, so a customer
+  // editing the cookie cannot invent a commission or pick a different rate.
+  // Commission is taken on the subtotal, never the total — delivery is a
+  // pass-through cost, not margin.
+  const claimedCode = (await cookies()).get(REFERRAL_COOKIE)?.value;
+  const affiliate = claimedCode ? await affiliateStore.activeByCode(claimedCode) : undefined;
+  const attribution = affiliate
+    ? {
+        affiliateId: affiliate.id,
+        affiliateCode: affiliate.code,
+        // Snapshotted: a later rate change must not rewrite this order.
+        commissionRate: affiliate.commissionRate,
+        commissionAmount: commissionFor(subtotal, affiliate.commissionRate),
+      }
+    : {};
+
   const draft: NewOrder = {
+    ...attribution,
     items,
     customer: {
       fullName: body.fullName!.trim(),

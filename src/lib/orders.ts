@@ -14,6 +14,7 @@
 import { randomUUID } from "node:crypto";
 
 import { getDb } from "@/lib/db/client";
+import type { CommissionStatus } from "@/lib/affiliates";
 
 export type OrderStatus = "pending_payment" | "paid" | "failed" | "cancelled";
 
@@ -65,12 +66,28 @@ export type Order = {
   fulfilment: Fulfilment;
   trackingNumber?: string;
   fulfilmentUpdatedAt?: string;
+
+  /** Set when the order arrived through a referral link. */
+  affiliateId?: string;
+  affiliateCode?: string;
+  /** The rate in force when the order was placed, frozen here. */
+  commissionRate?: number;
+  commissionAmount?: number;
+  commissionStatus: CommissionStatus;
+  commissionPaidAt?: string;
 };
 
 /** A new order before it has an id or reference — the store assigns both. */
 export type NewOrder = Omit<
   Order,
-  "id" | "reference" | "createdAt" | "status" | "fulfilment" | "fulfilmentUpdatedAt"
+  | "id"
+  | "reference"
+  | "createdAt"
+  | "status"
+  | "fulfilment"
+  | "fulfilmentUpdatedAt"
+  | "commissionStatus"
+  | "commissionPaidAt"
 > & {
   status?: OrderStatus;
 };
@@ -144,6 +161,12 @@ type OrderRow = {
   fulfilment: Fulfilment;
   tracking_number: string | null;
   fulfilment_updated_at: Date | string | null;
+  affiliate_id: string | null;
+  affiliate_code: string | null;
+  commission_rate: string | null;
+  commission_amount: string | null;
+  commission_status: CommissionStatus;
+  commission_paid_at: Date | string | null;
   subtotal: string;
   shipping: string;
   total: string;
@@ -206,6 +229,12 @@ function rowToOrder(row: OrderRow, items: ItemRow[]): Order {
     fulfilment: row.fulfilment,
     trackingNumber: row.tracking_number ?? undefined,
     fulfilmentUpdatedAt: row.fulfilment_updated_at ? iso(row.fulfilment_updated_at) : undefined,
+    affiliateId: row.affiliate_id ?? undefined,
+    affiliateCode: row.affiliate_code ?? undefined,
+    commissionRate: row.commission_rate === null ? undefined : Number(row.commission_rate),
+    commissionAmount: row.commission_amount === null ? undefined : amount(row.commission_amount),
+    commissionStatus: row.commission_status,
+    commissionPaidAt: row.commission_paid_at ? iso(row.commission_paid_at) : undefined,
   };
 }
 
@@ -239,8 +268,9 @@ class PostgresOrderStore implements OrderStore {
                id, reference, status,
                customer_full_name, customer_email, customer_phone,
                address_line1, address_line2, address_postcode, address_city, address_state,
-               notes, subtotal, shipping, total, currency
-             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+               notes, subtotal, shipping, total, currency,
+               affiliate_id, affiliate_code, commission_rate, commission_amount, commission_status
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
              RETURNING *`,
             [
               id,
@@ -259,6 +289,13 @@ class PostgresOrderStore implements OrderStore {
               order.shipping,
               order.total,
               order.currency,
+              order.affiliateId ?? null,
+              order.affiliateCode ?? null,
+              order.commissionRate ?? null,
+              order.commissionAmount ?? null,
+              // Commission exists from the moment of attribution but is only
+              // payable once the order is paid; `payOut` filters on that.
+              order.affiliateId ? "pending" : "none",
             ],
           );
 
@@ -326,7 +363,15 @@ class PostgresOrderStore implements OrderStore {
     const rows = await db.query<OrderRow>(
       `UPDATE orders
           SET status  = $2,
-              paid_at = CASE WHEN $2 = 'paid' THEN COALESCE(paid_at, now()) ELSE paid_at END
+              paid_at = CASE WHEN $2 = 'paid' THEN COALESCE(paid_at, now()) ELSE paid_at END,
+              -- An order that never completed earns no commission. Only
+              -- 'pending' is voided: commission already paid out is money that
+              -- has left the business, and reclaiming it is a decision for a
+              -- human, not a side effect of a status change.
+              commission_status = CASE
+                WHEN $2 IN ('failed','cancelled') AND commission_status = 'pending' THEN 'void'
+                ELSE commission_status
+              END
         WHERE id = $1
           AND (status <> 'paid' OR $2 = 'paid')
         RETURNING *`,

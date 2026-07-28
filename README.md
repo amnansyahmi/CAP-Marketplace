@@ -141,6 +141,40 @@ and every route redirects to a sign-in page that will not accept any password.
 - A single shared password suits one shop owner. For more than one person,
   replace it with real accounts rather than sharing the secret.
 
+## Affiliates
+
+Affiliates refer customers with a link carrying their code
+(`https://your-domain.my/?ref=AMINA10`) and earn commission on what those
+customers buy. `/admin/affiliates` manages them: add or deactivate affiliates,
+see sales and commission per person, and record payouts.
+
+### How commission is calculated
+
+Two rules decide whether the right amount is paid, and both are enforced in
+code rather than left to convention:
+
+- **Commission is taken on the order subtotal, never the total.** Delivery is a
+  cost passed to a courier, not margin — a percentage of it would mean paying
+  affiliates out of postage.
+- **The rate is snapshotted onto the order.** Commission is computed once, from
+  the rate in force at that moment. Changing an affiliate's rate later applies
+  to future orders only and never rewrites what has already been earned or paid.
+
+Commission is only *owed* once the order is paid. An order that fails or is
+cancelled voids its pending commission automatically. Commission already paid
+out is never voided by a status change — money that has left the business is a
+decision for a human, not a side effect.
+
+### Attribution
+
+`?ref=CODE` is captured by middleware into a cookie with a 30-day window. The
+cookie records a claim only: the order API looks the code up server-side and
+ignores it unless it matches an **active** affiliate, so editing the cookie
+cannot invent a commission or select a better rate.
+
+Payouts are idempotent — `payOut` only settles commission on orders that were
+actually paid, and cannot pay the same commission twice.
+
 ## Product assets
 
 `public/products/*.webp` are transparent cutouts used throughout the site;
@@ -159,5 +193,6 @@ from its label colour band.
 3. Stock levels. Nothing stops an order for more jars than exist.
 4. Rate limiting on `POST /api/orders`.
 5. Wire up or remove the footer newsletter form; it currently does nothing.
-6. Weekly commission reporting, building on the admin overview.
+6. An affiliate-facing dashboard. Affiliates currently have no login; the shop
+   owner reports their earnings to them.
 7. Lifestyle/recipe photography for the story section.

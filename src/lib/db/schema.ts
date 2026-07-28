@@ -69,6 +69,41 @@ EXCEPTION
 END
 $$;
 
+CREATE TABLE IF NOT EXISTS affiliates (
+  id              uuid PRIMARY KEY,
+  -- What goes in ?ref=. Stored uppercase so lookups are unambiguous.
+  code            text NOT NULL UNIQUE CHECK (code = upper(code) AND length(code) BETWEEN 3 AND 24),
+  name            text NOT NULL,
+  email           text NOT NULL,
+  phone           text,
+  -- Fraction, e.g. 0.1000 = 10%. Four decimal places allows 12.5% and similar.
+  commission_rate numeric(5,4) NOT NULL CHECK (commission_rate >= 0 AND commission_rate <= 1),
+  active          boolean NOT NULL DEFAULT true,
+  notes           text,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+-- Attribution is snapshotted onto the order rather than joined at read time.
+-- commission_rate in particular must be frozen: changing an affiliate's rate
+-- later must not silently rewrite what they already earned.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS affiliate_id uuid REFERENCES affiliates(id);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS affiliate_code text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS commission_rate numeric(5,4);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS commission_amount numeric(10,2);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS commission_status text NOT NULL DEFAULT 'none';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS commission_paid_at timestamptz;
+
+DO $$
+BEGIN
+  ALTER TABLE orders ADD CONSTRAINT orders_commission_status_check
+    CHECK (commission_status IN ('none','pending','paid','void'));
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END
+$$;
+
+CREATE INDEX IF NOT EXISTS orders_affiliate_idx ON orders (affiliate_id);
+CREATE INDEX IF NOT EXISTS orders_commission_status_idx ON orders (commission_status);
 CREATE INDEX IF NOT EXISTS orders_payment_id_idx ON orders (payment_id);
 CREATE INDEX IF NOT EXISTS orders_created_at_idx ON orders (created_at DESC);
 CREATE INDEX IF NOT EXISTS orders_status_idx ON orders (status);
