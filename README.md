@@ -298,6 +298,52 @@ exclusion holds.
 Responses are `Cache-Control: no-store, private` — commercial data must not sit
 in a shared cache.
 
+## Deploying to Vercel
+
+Set these in **Project → Settings → Environment Variables**, then redeploy.
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `DATABASE_URL` | **yes** | Postgres. Supabase's **pooled** URI (port 6543), not the direct one |
+| `NEXT_PUBLIC_SITE_URL` | **yes** | e.g. `https://chefammar.my` — CHIP redirects back here |
+| `CHIP_BRAND_ID` | to take money | From the CHIP dashboard |
+| `CHIP_SECRET_KEY` | to take money | |
+| `CHIP_PUBLIC_KEY` | to take money | Without it, webhooks are rejected and orders never confirm |
+| `ADMIN_PASSWORD` | to use `/admin` | Min 12 characters |
+| `ADMIN_SESSION_SECRET` | to use `/admin` | `openssl rand -base64 32` |
+| `PARTNER_API_KEY` | for the dashboard | Min 24 characters |
+| `AGENT_FEE_PER_SALE` | no | Defaults to `2` |
+| `AGENT_FEE_BASIS` | no | `order` (default) or `unit` |
+
+### Two things that will stop a deploy misbehaving
+
+**Without `DATABASE_URL` the app refuses to start serving orders.** It does not
+fall back to the local development database: a serverless filesystem is
+read-only where the app lives and wiped between invocations where it is not, so
+orders would fail to save — or save and then vanish. The error names the fix.
+
+**Without CHIP credentials, a production deployment refuses to take orders.**
+In development the shop simulates payments so the flow is clickable. Doing that
+on a live URL would tell real customers their order was confirmed for money
+never collected, so it is refused. To show the shop on a production URL
+deliberately, set `ALLOW_SIMULATED_PAYMENTS=1`.
+
+Preview deployments are *not* treated as production, so a preview URL
+demonstrates the full flow with simulated payments and no extra configuration —
+`VERCEL_ENV` distinguishes them, since `NODE_ENV` is `production` for previews
+too.
+
+### After the first deploy
+
+1. Hit any page — the schema is created on first connection.
+2. Sign in at `/admin` and add your affiliates.
+3. Point CHIP's webhook at `https://your-domain/api/webhooks/chip`.
+4. Give the central dashboard `PARTNER_API_KEY` and the endpoints under
+   [Partner API](#partner-api).
+
+`vercel.json` pins the region to `sin1` (Singapore), the closest to Malaysian
+customers, and marks `/admin` and the partner API `no-store` and `noindex`.
+
 ## Product assets
 
 `public/products/*.webp` are transparent cutouts used throughout the site;

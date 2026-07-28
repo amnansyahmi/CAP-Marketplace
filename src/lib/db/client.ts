@@ -1,3 +1,4 @@
+import { isProductionDeployment, onVercel } from "@/lib/environment";
 import { SCHEMA_SQL } from "@/lib/db/schema";
 
 // Not marked with `server-only`: that package throws outside a Next request
@@ -108,6 +109,19 @@ async function connectPostgres(): Promise<Db> {
 }
 
 async function connectPglite(): Promise<Db> {
+  // PGlite stores data on the local filesystem. On a serverless host that
+  // filesystem is read-only where the app lives, and ephemeral and per-instance
+  // where it is writable — orders would fail to save, or save and then vanish.
+  // Fail with something that names the fix rather than an EROFS deep in a
+  // dependency.
+  if (onVercel() || isProductionDeployment()) {
+    throw new Error(
+      "DATABASE_URL is not set. This deployment has no database: PGlite is for " +
+        "local development only, because a serverless filesystem does not persist. " +
+        "Set DATABASE_URL to a Postgres connection string (Supabase, Neon, or similar).",
+    );
+  }
+
   const { PGlite } = await import("@electric-sql/pglite");
 
   // In-memory when explicitly asked (tests), on disk otherwise so a dev

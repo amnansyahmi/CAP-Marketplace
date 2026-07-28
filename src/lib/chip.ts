@@ -24,6 +24,7 @@
 
 import { createVerify, timingSafeEqual } from "node:crypto";
 
+import { simulatedPaymentsAllowed } from "@/lib/environment";
 import type { Order } from "@/lib/orders";
 import { toSen } from "@/lib/shipping";
 
@@ -49,6 +50,16 @@ export async function createPurchase(
   const { brandId, secretKey, isLive } = chipConfig();
 
   if (!isLive) {
+    // Refusing here is the whole point. Without this, deploying without CHIP
+    // credentials would hand real customers an order marked "confirmed" for
+    // money that was never taken — a far worse failure than a broken checkout.
+    if (!simulatedPaymentsAllowed()) {
+      throw new Error(
+        "Refusing to simulate a payment on a production deployment. " +
+          "Set CHIP_BRAND_ID and CHIP_SECRET_KEY to take real payments, or set " +
+          "ALLOW_SIMULATED_PAYMENTS=1 if this deployment is deliberately a demo.",
+      );
+    }
     return {
       paymentId: `sim_${order.id}`,
       checkoutUrl: urls.successUrl,
