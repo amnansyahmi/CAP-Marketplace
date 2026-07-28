@@ -7,15 +7,35 @@ built with Next.js App Router, TypeScript, Tailwind CSS v4 and shadcn/ui.
 
 ```bash
 npm install
-cp .env.example .env.local   # optional; the shop runs without it
+npm run demo     # generates credentials and seeds a shop with history
 npm run dev
-npm test                     # order persistence and money handling
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3000. Sign in to `/admin` with `demo-chef-ammar-2026`.
 
-With no CHIP credentials set the shop runs in **simulation mode** — see
-[Payments](#payments) below.
+`npm run demo` exists so the whole system can be shown without configuring
+anything: it writes `.env.local` with working credentials and seeds affiliates,
+orders across several weeks and states, mixed payment and fulfilment states, and
+some orders through referral links. It prints the admin password and the partner
+API key when it finishes. Add `--reset` to wipe and start again.
+
+It does **not** bypass any security guard — the admin area and partner API still
+fail closed when unconfigured. It configures them. Those credentials are printed
+to a terminal and are for local demos only.
+
+It refuses to run under `NODE_ENV=production`, and refuses to seed into a remote
+`DATABASE_URL` without `--force`, because mixing invented orders into a real shop
+is not undoable.
+
+Other commands:
+
+```bash
+npm test         # money handling, persistence, auth, commission
+npm run build
+```
+
+Without CHIP credentials the shop runs in **simulation mode** — see
+[Payments](#payments).
 
 ## The shop
 

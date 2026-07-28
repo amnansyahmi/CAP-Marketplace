@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "demo": "tsx scripts/demo.mts",
     "build": "next build",
     "start": "next start",
     "test": "tsx --test \"src/**/*.test.ts\"",
