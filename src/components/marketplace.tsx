@@ -3,13 +3,16 @@ import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
 
-import { HERITAGE_NOTE, products, startingPrice, type Product } from "@/lib/products";
+import { BRAND_TAGLINE, HERITAGE_NOTE, products, startingPrice, type Product } from "@/lib/products";
 import { useCart } from "@/lib/cart-context";
 import { useAddToBag } from "@/lib/use-add-to-bag";
 import { ZONE_RATES } from "@/lib/shipping";
-import { money } from "@/lib/utils";
+import { cn, money } from "@/lib/utils";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
+import { Marquee } from "@/components/marquee";
+import { HeroJars } from "@/components/motion/hero-jars";
+import { Reveal } from "@/components/motion/reveal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
@@ -63,8 +66,12 @@ export default function Marketplace() {
       <SiteHeader />
       <main id="main-content" tabIndex={-1} className="outline-none">
         <Hero />
+        <Marquee
+          items={[BRAND_TAGLINE, "Kabsah", "Mandy", "Briyani", "350g setiap balang", "Dihantar seluruh Malaysia"]}
+        />
         <Promises />
         <Collection onAdd={addToBag} onQuickView={setQuickView} />
+        <Statement />
         <Story />
         <Guide />
         <Faq />
@@ -83,14 +90,20 @@ function Hero() {
   return (
     <section className="relative mx-auto grid max-w-[1440px] lg:min-h-[720px] lg:grid-cols-[.88fr_1.12fr]">
       <div className="flex flex-col justify-center px-6 py-18 lg:px-14 lg:py-24 xl:px-24">
-        <p className="eyebrow mb-6">Made for generous tables</p>
-        <h1 className="max-w-2xl font-serif text-[clamp(3.6rem,7.4vw,7.5rem)] leading-[.88] tracking-[-.055em]">
-          Arabian rice, made easier.
-        </h1>
-        <p className="mt-8 max-w-lg text-base leading-7 text-muted-foreground lg:text-lg">
-          Chef-crafted cooking pastes with deep aroma, honest ingredients and enough flavour for the whole family.
-        </p>
-        <div className="mt-10 flex flex-wrap items-center gap-6">
+        <Reveal>
+          <p className="eyebrow mb-6">Made for generous tables</p>
+        </Reveal>
+        <Reveal delay={90} distance={32}>
+          <h1 className="max-w-2xl font-serif text-[clamp(3.6rem,7.4vw,7.5rem)] leading-[.88] tracking-[-.055em]">
+            Arabian rice, made easier.
+          </h1>
+        </Reveal>
+        <Reveal delay={200}>
+          <p className="mt-8 max-w-lg text-base leading-7 text-muted-foreground lg:text-lg">
+            Chef-crafted cooking pastes with deep aroma, honest ingredients and enough flavour for the whole family.
+          </p>
+        </Reveal>
+        <Reveal delay={300} className="mt-10 flex flex-wrap items-center gap-6">
           <Button
             variant="warm"
             size="lg"
@@ -99,32 +112,14 @@ function Hero() {
             Shop the collection
           </Button>
           <span className="text-sm text-muted-foreground">From {money(startingPrice())} per 350g jar</span>
-        </div>
+        </Reveal>
       </div>
-      <div className="relative min-h-[520px] overflow-hidden bg-[#ded2bd] lg:min-h-full">
+      <div className="relative min-h-[520px] overflow-hidden bg-[#ded2bd] spice-field lg:min-h-full">
         <div className="absolute inset-0 grain" />
         <div className="absolute left-[6%] top-[8%] font-serif text-[10rem] leading-none text-black/[.05] lg:text-[17rem]">
           أ
         </div>
-        {/* The three real jars, staggered — the centre one leads. */}
-        <div className="absolute inset-0 flex items-end justify-center gap-[3%] px-[6%] pb-[7%]">
-          {[products[0], products[1], products[2]].map((p, i) => (
-            <div
-              key={p.id}
-              className={`relative w-[30%] ${i === 1 ? "h-[88%]" : "h-[72%]"}`}
-              style={{ zIndex: i === 1 ? 2 : 1 }}
-            >
-              <Image
-                src={p.image}
-                alt={`${p.name} jar`}
-                fill
-                priority={i === 1}
-                sizes="(max-width: 1024px) 30vw, 22vw"
-                className="object-contain object-bottom drop-shadow-[0_18px_28px_rgba(0,0,0,.22)]"
-              />
-            </div>
-          ))}
-        </div>
+        <HeroJars products={[products[0], products[1], products[2]]} />
         <div className="absolute left-7 top-7 border-l border-black/30 pl-4 text-xs leading-5">
           <strong className="block uppercase tracking-[.18em]">Signature collection</strong>
           <span className="text-black/70">Three pastes, one range</span>
@@ -139,11 +134,11 @@ function Promises() {
     <section className="border-y border-border bg-[#272821] text-[#f5f0e7]">
       <div className="mx-auto grid max-w-[1440px] grid-cols-1 divide-y divide-white/12 md:grid-cols-3 md:divide-x md:divide-y-0">
         {promises.map((p, i) => (
-          <div key={p.title} className="px-6 py-9 lg:px-10">
+          <Reveal key={p.title} delay={i * 110} className="px-6 py-9 lg:px-10">
             <span className="text-[10px] tracking-[.22em] text-white/60">{String(i + 1).padStart(2, "0")}</span>
             <h3 className="mt-5 text-sm font-medium">{p.title}</h3>
             <p className="mt-2 max-w-xs text-xs leading-5 text-white/55">{p.text}</p>
-          </div>
+          </Reveal>
         ))}
       </div>
     </section>
@@ -153,7 +148,7 @@ function Promises() {
 function Collection({ onAdd, onQuickView }: { onAdd: (p: Product) => void; onQuickView: (p: Product) => void }) {
   return (
     <section id="collection" className="mx-auto max-w-[1440px] px-5 py-20 lg:px-10 lg:py-28">
-      <div className="mb-12 flex items-end justify-between gap-8">
+      <Reveal className="mb-12 flex items-end justify-between gap-8">
         <div>
           <p className="eyebrow">The full range</p>
           <h2 className="mt-3 font-serif text-5xl tracking-[-.04em] lg:text-7xl">Choose your favourite.</h2>
@@ -162,10 +157,13 @@ function Collection({ onAdd, onQuickView }: { onAdd: (p: Product) => void; onQui
           Three blends for different moods, all designed around the same promise: proper flavour without the
           complicated prep.
         </p>
-      </div>
+      </Reveal>
       <div className="grid gap-x-6 gap-y-14 sm:grid-cols-2 lg:grid-cols-3">
-        {products.map((p) => (
-          <ProductCard key={p.id} product={p} onAdd={() => onAdd(p)} onQuickView={() => onQuickView(p)} />
+        {products.map((p, i) => (
+          // Staggered so the three cards arrive in sequence rather than as one block.
+          <Reveal key={p.id} delay={i * 120}>
+            <ProductCard product={p} onAdd={() => onAdd(p)} onQuickView={() => onQuickView(p)} />
+          </Reveal>
         ))}
       </div>
     </section>
@@ -177,19 +175,28 @@ function ProductCard({ product, onAdd, onQuickView }: { product: Product; onAdd:
   const quantity = lines.find((l) => l.product.id === product.id)?.quantity ?? 0;
 
   return (
-    <Card className="group gap-0 overflow-hidden">
+    <Card className="group gap-0 overflow-hidden transition-[transform,box-shadow] duration-500 hover:-translate-y-1.5 hover:shadow-[0_26px_50px_-26px_rgba(60,32,12,.5)] motion-reduce:hover:translate-y-0">
       <div className="relative aspect-[4/5] overflow-hidden" style={{ backgroundColor: `${product.accent}14` }}>
+        {/* A wash of the product's own colour, lit on hover, so each card warms
+            up in its own hue instead of every card behaving identically. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100"
+          style={{ background: `radial-gradient(circle at 50% 62%, ${product.accent}38, transparent 68%)` }}
+        />
         <Link href={`/products/${product.slug}`} className="absolute inset-0 z-[1]">
           <Image
             src={product.image}
             alt={product.name}
             fill
             sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-            className="object-contain p-8 transition-transform duration-700 group-hover:scale-[1.03]"
+            className="object-contain p-8 transition-transform duration-700 ease-[cubic-bezier(.22,.61,.36,1)] group-hover:-translate-y-2 group-hover:scale-[1.07] motion-reduce:group-hover:translate-y-0 motion-reduce:group-hover:scale-100"
           />
           <span className="sr-only">View {product.name}</span>
         </Link>
-        <div className="pointer-events-none absolute left-4 top-4 text-2xl text-black/25">{product.arabic}</div>
+        <div className="pointer-events-none absolute left-4 top-4 text-2xl text-black/25 transition-[transform,color] duration-500 group-hover:scale-125 group-hover:text-black/40">
+          {product.arabic}
+        </div>
         {quantity > 0 && (
           <span
             className="pointer-events-none absolute right-4 top-4 z-[2] grid size-8 place-items-center rounded-md bg-foreground text-xs text-background"
@@ -289,12 +296,69 @@ function QuickViewDialog({
   );
 }
 
+/**
+ * The loud moment.
+ *
+ * Every other section is measured; this one is not. Type at the largest size
+ * the page allows, on the darkest surface, with the jar names as the whole
+ * message. It exists to break the rhythm between the shop and the story so the
+ * page has a peak rather than a flat line.
+ */
+function Statement() {
+  return (
+    <section className="relative overflow-hidden border-y border-black/40 bg-[#1b1a16] text-[#f5f0e7]">
+      <div aria-hidden className="absolute inset-0 spice-field opacity-90" />
+      <div aria-hidden className="absolute inset-0 grain" />
+      <div className="relative mx-auto max-w-[1440px] px-5 py-24 lg:px-10 lg:py-32">
+        <Reveal>
+          <p className="text-[11px] font-semibold uppercase tracking-[.28em] text-white/70">Three pastes</p>
+        </Reveal>
+        <div className="mt-10">
+          {products.map((product, i) => {
+            // Alternating sides so the eye travels down the section instead of
+            // running straight down one margin — and so the width gets used.
+            const flipped = i % 2 === 1;
+            return (
+              <Reveal key={product.id} delay={i * 110} distance={40}>
+                <Link
+                  href={`/products/${product.slug}`}
+                  className={cn(
+                    "group flex flex-wrap items-baseline justify-between gap-x-8 border-b border-white/10 py-3 last:border-b-0",
+                    flipped && "flex-row-reverse text-right",
+                  )}
+                >
+                  <span className="font-serif text-[clamp(3rem,11.5vw,9.5rem)] leading-[.92] tracking-[-.06em] transition-colors duration-300 group-hover:text-primary">
+                    {product.name.replace(" Paste", "")}.
+                  </span>
+                  <span aria-hidden className="font-serif text-3xl text-white/25 lg:text-5xl">
+                    {product.arabic}
+                  </span>
+                </Link>
+              </Reveal>
+            );
+          })}
+        </div>
+        <Reveal delay={340}>
+          <div className="mt-12 flex flex-wrap items-center gap-8 border-t border-white/12 pt-8">
+            <p className="max-w-md text-sm leading-7 text-white/60">
+              The dishes people gather for, reduced to one jar each. Open, sauté, serve.
+            </p>
+            <Button asChild variant="warm" size="lg" className="ml-auto">
+              <Link href="#collection">See the range</Link>
+            </Button>
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
 function Story() {
   const hero = products[0];
   return (
     <section id="story" className="bg-[#e7ddcd] px-5 py-20 lg:px-10 lg:py-28">
       <div className="mx-auto grid max-w-[1360px] gap-14 lg:grid-cols-2 lg:items-center">
-        <div className="relative aspect-[4/3] overflow-hidden rounded-lg bg-[#d8c8ac]">
+        <Reveal className="relative aspect-[4/3] overflow-hidden rounded-lg bg-[#d8c8ac]" distance={32}>
           <div className="absolute inset-0 grain" />
           <div className="absolute right-[6%] top-1/2 -translate-y-1/2 font-serif text-[9rem] leading-none text-black/[.06] lg:text-[13rem]">
             {hero.arabic}
@@ -306,8 +370,8 @@ function Story() {
             sizes="(max-width: 1024px) 100vw, 50vw"
             className="object-contain p-10 drop-shadow-[0_20px_30px_rgba(0,0,0,.2)]"
           />
-        </div>
-        <div className="max-w-xl lg:pl-12">
+        </Reveal>
+        <Reveal className="max-w-xl lg:pl-12" delay={120}>
           <p className="eyebrow">From Chef Ammar&rsquo;s kitchen</p>
           <h2 className="mt-4 font-serif text-5xl leading-[.98] tracking-[-.045em] lg:text-7xl">
             Good food should bring people closer.
@@ -319,7 +383,7 @@ function Story() {
           <blockquote className="mt-8 border-l border-black/20 pl-5 text-sm italic leading-7 text-black/65">
             {HERITAGE_NOTE}
           </blockquote>
-        </div>
+        </Reveal>
       </div>
     </section>
   );
@@ -333,14 +397,28 @@ function Guide() {
   ];
   return (
     <section id="guide" className="mx-auto max-w-[1440px] px-5 py-20 lg:px-10 lg:py-28">
-      <p className="eyebrow">Simple by design</p>
+      <Reveal>
+        <p className="eyebrow">Simple by design</p>
+      </Reveal>
       <div className="mt-5 grid gap-0 border-y border-border lg:grid-cols-3">
-        {steps.map(([n, t, d]) => (
-          <div key={n} className="border-b border-border py-9 lg:border-b-0 lg:border-r lg:px-10 first:pl-0 last:border-r-0">
-            <span className="text-xs text-muted-foreground">{n}</span>
-            <h3 className="mt-8 font-serif text-4xl">{t}</h3>
-            <p className="mt-3 text-sm text-muted-foreground">{d}</p>
-          </div>
+        {steps.map(([n, t, d], i) => (
+          <Reveal
+            key={n}
+            delay={i * 120}
+            className="relative overflow-hidden border-b border-border py-9 lg:border-b-0 lg:border-r lg:px-10 first:pl-0 last:border-r-0"
+          >
+            {/* The step number as a background mark rather than a caption: it
+                carries the counting at a glance and gives the row some scale. */}
+            <span
+              aria-hidden
+              className="pointer-events-none absolute -top-6 right-2 font-serif text-[7rem] leading-none text-foreground/[.06] lg:text-[9rem]"
+            >
+              {n}
+            </span>
+            <span className="relative text-xs tracking-[.18em] text-muted-foreground">{n}</span>
+            <h3 className="relative mt-8 font-serif text-4xl">{t}</h3>
+            <p className="relative mt-3 text-sm text-muted-foreground">{d}</p>
+          </Reveal>
         ))}
       </div>
     </section>
@@ -350,10 +428,10 @@ function Guide() {
 function Faq() {
   return (
     <section id="faq" className="mx-auto max-w-[900px] px-5 py-20 lg:px-10 lg:py-28">
-      <div className="mb-10 text-center">
+      <Reveal className="mb-10 text-center">
         <p className="eyebrow">Good to know</p>
         <h2 className="mt-3 font-serif text-5xl tracking-[-.04em] lg:text-6xl">Frequently asked.</h2>
-      </div>
+      </Reveal>
       <Accordion type="single" collapsible>
         {faqs.map((f, i) => (
           <AccordionItem key={f.q} value={`item-${i}`}>

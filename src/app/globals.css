@@ -109,7 +109,22 @@
   }
 }
 
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
 @layer utilities {
+  /* Warm grain over a colour block, so large flat areas have some texture. */
+  .spice-field {
+    background-image:
+      radial-gradient(ellipse at 20% 15%, rgba(255, 214, 150, 0.16), transparent 55%),
+      radial-gradient(ellipse at 82% 80%, rgba(155, 61, 41, 0.28), transparent 58%);
+  }
   .eyebrow {
     font-size: 0.72rem;
     font-weight: 700;
