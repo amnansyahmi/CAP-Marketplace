@@ -11,7 +11,19 @@ npm run demo     # generates credentials and seeds a shop with history
 npm run dev
 ```
 
-Open http://localhost:3000. Sign in to `/admin` with `demo-chef-ammar-2026`.
+Then open:
+
+| | |
+| --- | --- |
+| Shop | http://localhost:3000 |
+| Admin overview | http://localhost:3000/admin |
+| Orders | http://localhost:3000/admin/orders |
+| Affiliates | http://localhost:3000/admin/affiliates |
+
+There is no sign-in during the demo: `npm run demo` sets `ADMIN_DEMO_MODE=1`, so
+`/admin` opens straight away and every page there shows a red banner saying the
+login is off. Remove that line from `.env.local` to get the sign-in back — the
+password is `demo-chef-ammar-2026`.
 
 `npm run demo` exists so the whole system can be shown without configuring
 anything: it writes `.env.local` with working credentials and seeds affiliates,
@@ -19,9 +31,13 @@ orders across several weeks and states, mixed payment and fulfilment states, and
 some orders through referral links. It prints the admin password and the partner
 API key when it finishes. Add `--reset` to wipe and start again.
 
-It does **not** bypass any security guard — the admin area and partner API still
-fail closed when unconfigured. It configures them. Those credentials are printed
-to a terminal and are for local demos only.
+It turns the admin sign-in off, because a demo should not start with a password
+prompt. That is the one guard it relaxes, it does so through an explicit flag,
+and it writes that flag to `.env.local` — gitignored, never uploaded, so a
+deployment is unaffected. Everything else it *configures* rather than bypasses:
+the partner API still needs its key, and the admin sign-in still works the
+moment the flag is removed. Those credentials are printed to a terminal and are
+for local demos only.
 
 It refuses to run under `NODE_ENV=production`, and refuses to seed into a remote
 `DATABASE_URL` without `--force`, because mixing invented orders into a real shop
@@ -150,6 +166,21 @@ and every route redirects to a sign-in page that will not accept any password.
 | --- | --- |
 | `ADMIN_PASSWORD` | Shared password, minimum 12 characters |
 | `ADMIN_SESSION_SECRET` | Signs the session cookie — `openssl rand -base64 32` |
+
+#### Demo mode
+
+Setting `ADMIN_DEMO_MODE=1` removes the sign-in: `/admin` opens for anyone with
+the URL. It is for showing the system before credentials exist.
+
+- Only the exact value `1` enables it, so no amount of *missing* configuration
+  can produce it — the fail-closed default is unchanged.
+- It is honoured on production deployments too, because a demo has to be
+  viewable on the deployed URL to be worth anything. Vercel will not pick it up
+  from `.env.local`; it has to be added to the project's environment on purpose.
+- Every admin page carries a non-dismissible banner while it is on.
+
+**Turn it off before the shop takes a real order.** Anyone with the link can
+read every customer's name, phone number and delivery address.
 
 - The session is an HMAC-signed, `httpOnly`, `sameSite=lax` cookie lasting eight
   hours. Editing the expiry invalidates the signature.
@@ -311,6 +342,7 @@ Set these in **Project → Settings → Environment Variables**, then redeploy.
 | `CHIP_PUBLIC_KEY` | to take money | Without it, webhooks are rejected and orders never confirm |
 | `ADMIN_PASSWORD` | to use `/admin` | Min 12 characters |
 | `ADMIN_SESSION_SECRET` | to use `/admin` | `openssl rand -base64 32` |
+| `ADMIN_DEMO_MODE` | never, for a real shop | `1` opens `/admin` with no sign-in |
 | `PARTNER_API_KEY` | for the dashboard | Min 24 characters |
 | `AGENT_FEE_PER_SALE` | no | Defaults to `2` |
 | `AGENT_FEE_BASIS` | no | `order` (default) or `unit` |
@@ -336,7 +368,8 @@ too.
 ### After the first deploy
 
 1. Hit any page — the schema is created on first connection.
-2. Sign in at `/admin` and add your affiliates.
+2. Sign in at `/admin` and add your affiliates. Make sure `ADMIN_DEMO_MODE`
+   is **not** set on the deployment.
 3. Point CHIP's webhook at `https://your-domain/api/webhooks/chip`.
 4. Give the central dashboard `PARTNER_API_KEY` and the endpoints under
    [Partner API](#partner-api).

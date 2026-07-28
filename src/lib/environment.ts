@@ -28,3 +28,23 @@ export function isProductionDeployment(): boolean {
  */
 export const simulatedPaymentsAllowed = () =>
   !isProductionDeployment() || process.env.ALLOW_SIMULATED_PAYMENTS === "1";
+
+/**
+ * Opens the admin area to anyone who knows the URL.
+ *
+ * For showing the system before credentials exist. It is off unless
+ * `ADMIN_DEMO_MODE` is exactly "1", so it can only ever be turned on
+ * deliberately — there is no combination of *missing* configuration that
+ * produces it.
+ *
+ * It is honoured on production deployments too, because the demo has to be
+ * viewable on the deployed URL to be useful. That makes it genuinely unsafe
+ * once real orders exist: the admin area lists customers' names, phone numbers
+ * and delivery addresses. Every admin page carries a banner while this is on,
+ * so the state cannot be forgotten.
+ *
+ * `npm run demo` writes it to `.env.local`, which is gitignored and never
+ * uploaded — a Vercel deployment keeps its sign-in unless someone adds the
+ * variable to the project's environment on purpose.
+ */
+export const adminAuthBypassed = () => process.env.ADMIN_DEMO_MODE === "1";

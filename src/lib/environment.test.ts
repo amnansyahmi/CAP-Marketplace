@@ -9,9 +9,20 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 
-import { isProductionDeployment, onVercel, simulatedPaymentsAllowed } from "@/lib/environment";
+import {
+  adminAuthBypassed,
+  isProductionDeployment,
+  onVercel,
+  simulatedPaymentsAllowed,
+} from "@/lib/environment";
 
-const KEYS = ["VERCEL", "VERCEL_ENV", "NODE_ENV", "ALLOW_SIMULATED_PAYMENTS"] as const;
+const KEYS = [
+  "VERCEL",
+  "VERCEL_ENV",
+  "NODE_ENV",
+  "ALLOW_SIMULATED_PAYMENTS",
+  "ADMIN_DEMO_MODE",
+] as const;
 const saved: Record<string, string | undefined> = {};
 
 /**
@@ -99,5 +110,32 @@ describe("simulated payments", () => {
       env.ALLOW_SIMULATED_PAYMENTS = value;
       assert.equal(simulatedPaymentsAllowed(), false, `"${value}" should not enable simulated payments`);
     }
+  });
+});
+
+describe("the admin sign-in bypass", () => {
+  it("is off when nothing is configured", () => {
+    // The important direction: an unconfigured environment must never be the
+    // one that leaves customer addresses reachable without a password.
+    assert.equal(adminAuthBypassed(), false);
+  });
+
+  it("stays off for every value except the exact opt-in", () => {
+    for (const value of ["0", "false", "true", "yes", "", " 1", "1 "]) {
+      env.ADMIN_DEMO_MODE = value;
+      assert.equal(adminAuthBypassed(), false, `"${value}" should not open the admin area`);
+    }
+  });
+
+  it("is on when set deliberately", () => {
+    env.ADMIN_DEMO_MODE = "1";
+    assert.equal(adminAuthBypassed(), true);
+  });
+
+  it("is honoured on a production deployment, so a deployed demo works", () => {
+    env.VERCEL = "1";
+    env.VERCEL_ENV = "production";
+    env.ADMIN_DEMO_MODE = "1";
+    assert.equal(adminAuthBypassed(), true);
   });
 });

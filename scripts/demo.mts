@@ -64,6 +64,12 @@ if (configuredDbUrl && !FORCE) {
 const secret = () => randomBytes(32).toString("base64url");
 
 const wanted: Record<string, string> = {
+  // Opens the admin area without a sign-in, so the demo is one command and no
+  // password. Only ever written here, into a gitignored file — a deployment
+  // has to opt in through its own environment.
+  ADMIN_DEMO_MODE: "1",
+  // Still configured, so turning the demo flag off leaves a working sign-in
+  // rather than a disabled admin area.
   ADMIN_PASSWORD: DEMO_ADMIN_PASSWORD,
   ADMIN_SESSION_SECRET: secret(),
   PARTNER_API_KEY: secret(),
@@ -119,8 +125,15 @@ console.log(`
   Start it
     npm run dev            then open http://localhost:3000
 
-  Sign in to the admin at /admin
-    password   ${DEMO_ADMIN_PASSWORD}
+  Admin — open http://localhost:3000/admin
+    No sign-in: ADMIN_DEMO_MODE=1 is set in .env.local, so the login is off
+    and every admin page shows a red banner saying so.
+    Orders      /admin/orders
+    Affiliates  /admin/affiliates
+
+  To put the sign-in back
+    Remove ADMIN_DEMO_MODE from .env.local, then the password is
+      ${DEMO_ADMIN_PASSWORD}
 
   Partner API (the central dashboard's feed)
     curl -H "Authorization: Bearer ${envValue("PARTNER_API_KEY")}" \\

@@ -2,9 +2,16 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { ADMIN_COOKIE, adminConfig, issueSession, verifySession } from "@/lib/admin/auth";
+import { adminAuthBypassed } from "@/lib/environment";
 
-/** True when the current request carries a valid admin session. */
+/**
+ * True when the current request may use the admin area.
+ *
+ * The single chokepoint: `requireAdmin`, the layout and every server action go
+ * through here, so demo mode cannot open one route while leaving another shut.
+ */
 export async function isAdmin(): Promise<boolean> {
+  if (adminAuthBypassed()) return true;
   const jar = await cookies();
   return verifySession(jar.get(ADMIN_COOKIE)?.value);
 }
