@@ -4,11 +4,13 @@
  * Generates working credentials and seeds a shop that looks like a real
  * business, so the whole system can be shown without configuring anything.
  *
- * This deliberately does NOT weaken any security guard. The admin area and
- * partner API still fail closed when unconfigured — this script configures
- * them, it does not bypass them. The credentials it writes are for a local
- * demo and are printed in the terminal, which is exactly why they must never
- * be used anywhere real.
+ * It relaxes exactly one guard: ADMIN_DEMO_MODE switches the admin sign-in off,
+ * because a demo should not open with a password prompt. Everything else it
+ * *configures* rather than bypasses — the affiliate portal and partner API
+ * still fail closed when unconfigured. Everything it writes goes to .env.local,
+ * which is gitignored, so no deployment inherits any of it. The credentials are
+ * printed in the terminal, which is exactly why they must never be used
+ * anywhere real.
  */
 
 import { randomBytes } from "node:crypto";
@@ -72,6 +74,7 @@ const wanted: Record<string, string> = {
   // rather than a disabled admin area.
   ADMIN_PASSWORD: DEMO_ADMIN_PASSWORD,
   ADMIN_SESSION_SECRET: secret(),
+  AFFILIATE_SESSION_SECRET: secret(),
   PARTNER_API_KEY: secret(),
   AGENT_NAME: "KretivWork",
   AGENT_FEE_PER_SALE: "2",
@@ -108,7 +111,7 @@ if (RESET && existsSync(DATA_DIR)) {
 }
 
 // Imported after the environment is in place, so the store reads the right config.
-const { seedDemoData } = await import("./seed-demo.mts");
+const { DEMO_AFFILIATE_PASSWORD, seedDemoData } = await import("./seed-demo.mts");
 const result = await seedDemoData();
 
 const envValue = (key: string) =>
@@ -134,6 +137,12 @@ console.log(`
   To put the sign-in back
     Remove ADMIN_DEMO_MODE from .env.local, then the password is
       ${DEMO_ADMIN_PASSWORD}
+
+  Affiliate portal — open http://localhost:3000/affiliate
+    Standalone: affiliates sign in themselves and see only their own orders.
+    In demo mode the sign-in page lists the seeded affiliates as one-click
+    buttons. Their passwords are set too, if you want to try the real form:
+      CHEFCLUB / DAPURKITA / AMINA10   password  ${DEMO_AFFILIATE_PASSWORD}
 
   Partner API (the central dashboard's feed)
     curl -H "Authorization: Bearer ${envValue("PARTNER_API_KEY")}" \\

@@ -83,6 +83,13 @@ CREATE TABLE IF NOT EXISTS affiliates (
   created_at      timestamptz NOT NULL DEFAULT now()
 );
 
+-- Affiliates sign in to their own portal. Nullable because an affiliate exists
+-- before anyone gives them a password: until one is set they simply cannot sign
+-- in, which is the safe direction.
+ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS password_hash text;
+ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS password_salt text;
+ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS password_set_at timestamptz;
+
 -- Attribution is snapshotted onto the order rather than joined at read time.
 -- commission_rate in particular must be frozen: changing an affiliate's rate
 -- later must not silently rewrite what they already earned.

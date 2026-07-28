@@ -18,7 +18,8 @@ Then open:
 | Shop | http://localhost:3000 |
 | Admin overview | http://localhost:3000/admin |
 | Orders | http://localhost:3000/admin/orders |
-| Affiliates | http://localhost:3000/admin/affiliates |
+| Affiliates (admin) | http://localhost:3000/admin/affiliates |
+| Affiliate portal | http://localhost:3000/affiliate |
 
 There is no sign-in during the demo: `npm run demo` sets `ADMIN_DEMO_MODE=1`, so
 `/admin` opens straight away and every page there shows a red banner saying the
@@ -196,8 +197,55 @@ read every customer's name, phone number and delivery address.
 
 Affiliates refer customers with a link carrying their code
 (`https://your-domain.my/?ref=AMINA10`) and earn commission on what those
-customers buy. `/admin/affiliates` manages them: add or deactivate affiliates,
-see sales and commission per person, and record payouts.
+customers buy. There are two sides to it:
+
+- `/admin/affiliates` — the shop owner's view: add or deactivate affiliates,
+  set rates and passwords, see sales per person, record payouts.
+- `/affiliate` — the affiliate's own portal, which they sign into themselves.
+
+### The affiliate portal
+
+A standalone area at `/affiliate`, linked from the site footer. An affiliate
+signs in with their referral code and a password, and sees:
+
+- their referral link, with a copy button
+- what they have earned, what is awaiting payout, and what has been paid
+- every order that came through their link — date, jars, sale value, the rate
+  applied and what they earned on it
+
+**Affiliates see sales, not customers.** A promoter needs to trust the figure,
+which means seeing which orders were counted and for how much. It does not mean
+knowing where the buyer lives. The portal query selects the buyer's first name
+and delivery state and nothing else — email, phone, address lines, postcode and
+order notes are never read, so no component can leak them by rendering more than
+it meant to. A test asserts this by searching the serialised response for each
+of those values.
+
+Isolation is enforced by the session, not by a parameter. The affiliate's id
+comes from the signed cookie and every query is scoped to it; there is no URL or
+form field that selects an affiliate. The cookie names who it is for *inside*
+the signature, so repointing it at another code invalidates it and signs the
+visitor out rather than showing them somebody else's earnings.
+
+| Variable | Purpose |
+| --- | --- |
+| `AFFILIATE_SESSION_SECRET` | Signs the portal cookie — `openssl rand -base64 32` |
+
+Unset, the portal is disabled and the sign-in page says so, the same way the
+admin fails closed. It is a *separate* secret from `ADMIN_SESSION_SECRET` on
+purpose: a leaked affiliate secret must not be forgeable into an admin session.
+
+Passwords are set by the shop owner from the affiliate's admin page and passed
+on out of band — there is no self-service signup and no password reset email
+yet. They are stored as scrypt hashes with a per-affiliate salt and compared in
+constant time, so a stolen `affiliates` table does not yield anyone's password.
+An affiliate with no password set cannot sign in at all, and deactivating an
+affiliate closes their portal as well as stopping their commission.
+
+In demo mode (`ADMIN_DEMO_MODE=1`) the sign-in page also lists the affiliates as
+one-click buttons, so the portal can be shown without typing credentials. That
+path re-checks the flag inside the server action rather than trusting the page
+that drew the buttons.
 
 ### How commission is calculated
 
@@ -343,6 +391,7 @@ Set these in **Project → Settings → Environment Variables**, then redeploy.
 | `ADMIN_PASSWORD` | to use `/admin` | Min 12 characters |
 | `ADMIN_SESSION_SECRET` | to use `/admin` | `openssl rand -base64 32` |
 | `ADMIN_DEMO_MODE` | never, for a real shop | `1` opens `/admin` with no sign-in |
+| `AFFILIATE_SESSION_SECRET` | to use `/affiliate` | `openssl rand -base64 32` |
 | `PARTNER_API_KEY` | for the dashboard | Min 24 characters |
 | `AGENT_FEE_PER_SALE` | no | Defaults to `2` |
 | `AGENT_FEE_BASIS` | no | `order` (default) or `unit` |

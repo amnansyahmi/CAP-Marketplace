@@ -15,6 +15,7 @@
 import { randomUUID } from "node:crypto";
 
 import { getDb } from "@/lib/db/client";
+import { hashPassword, passwordProblem, verifyPassword } from "@/lib/affiliate/credentials";
 import { round } from "@/lib/shipping";
 
 export type Affiliate = {
@@ -115,6 +116,22 @@ export interface AffiliateStore {
   summary(code: string): Promise<AffiliateSummary | undefined>;
   /** Marks every earned, unpaid commission for this affiliate as paid out. */
   payOut(affiliateId: string): Promise<{ orders: number; amount: number }>;
+
+  // --- portal sign-in ------------------------------------------------------
+  /** Replaces the affiliate's password. Rejects one that is too short. */
+  setPassword(id: string, password: string): Promise<boolean>;
+  /** Removes the password, which stops the affiliate signing in at all. */
+  clearPassword(id: string): Promise<boolean>;
+  /**
+   * The affiliate for these credentials, or undefined.
+   *
+   * Deliberately gives one answer for "no such code", "wrong password" and
+   * "deactivated": which of the three it was is useful to someone guessing and
+   * to nobody else.
+   */
+  authenticate(code: string, password: string): Promise<Affiliate | undefined>;
+  /** Whether a password has been set, for the admin to show state. */
+  hasPassword(id: string): Promise<boolean>;
 }
 
 class PostgresAffiliateStore implements AffiliateStore {
@@ -275,6 +292,69 @@ class PostgresAffiliateStore implements AffiliateStore {
     );
     const amount = round(rows.rows.reduce((sum, r) => sum + Number(r.commission_amount), 0));
     return { orders: rows.rows.length, amount };
+  }
+
+  async setPassword(id: string, password: string) {
+    const problem = passwordProblem(password);
+    if (problem) throw new Error(problem);
+
+    const { hash, salt } = await hashPassword(password);
+    const db = await getDb();
+    const rows = await db.query(
+      `UPDATE affiliates
+          SET password_hash = $2, password_salt = $3, password_set_at = now()
+        WHERE id = $1
+       RETURNING id`,
+      [id, hash, salt],
+    );
+    return rows.rows.length === 1;
+  }
+
+  async clearPassword(id: string) {
+    const db = await getDb();
+    const rows = await db.query(
+      `UPDATE affiliates
+          SET password_hash = NULL, password_salt = NULL, password_set_at = NULL
+        WHERE id = $1
+       RETURNING id`,
+      [id],
+    );
+    return rows.rows.length === 1;
+  }
+
+  async authenticate(code: string, password: string) {
+    const normalised = normaliseCode(code);
+    if (!normalised) return undefined;
+
+    const db = await getDb();
+    const rows = await db.query<AffiliateRow & { password_hash: string | null; password_salt: string | null }>(
+      `SELECT * FROM affiliates WHERE code = $1`,
+      [normalised],
+    );
+    const row = rows.rows[0];
+
+    // Hash even when there is no such affiliate, so a missing code does not
+    // return measurably faster than a wrong password and become a way to
+    // enumerate which codes exist.
+    const matches = await verifyPassword(password, {
+      hash: row?.password_hash ?? undefined,
+      salt: row?.password_salt ?? undefined,
+    });
+
+    if (!row || !matches) return undefined;
+    // Deactivating an affiliate has to close their portal too, or "deactivated"
+    // would only mean "earns nothing" while they still read the sales list.
+    if (!row.active) return undefined;
+    return rowToAffiliate(row);
+  }
+
+  async hasPassword(id: string) {
+    const db = await getDb();
+    const rows = await db.query<{ set: boolean }>(
+      `SELECT (password_hash IS NOT NULL) AS set FROM affiliates WHERE id = $1`,
+      [id],
+    );
+    return rows.rows[0]?.set ?? false;
   }
 }
 

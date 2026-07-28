@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { BRAND_TAGLINE } from "@/lib/products";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,7 +46,14 @@ export function SiteFooter() {
       <Separator className="my-10 bg-white/12" />
       <div className="mx-auto flex max-w-[1440px] flex-col justify-between gap-3 text-xs text-white/65 md:flex-row">
         <p>© 2026 Chef Ammar. All rights reserved.</p>
-        <p>Payments secured by CHIP.</p>
+        <p className="flex flex-wrap gap-x-4 gap-y-1">
+          {/* Affiliates need a way in that does not depend on someone sending
+              them a link every time. */}
+          <Link href="/affiliate" className="transition-colors hover:text-white">
+            Affiliate login
+          </Link>
+          <span>Payments secured by CHIP.</span>
+        </p>
       </div>
     </footer>
   );

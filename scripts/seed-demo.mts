@@ -29,6 +29,9 @@ const PEOPLE: Person[] = [
   { name: "Noraini binti Salleh", email: "noraini@example.com", phone: "013-889 0011", city: "Alor Setar", state: "Kedah", postcode: "05000" },
 ];
 
+/** Demo affiliate portal password. Shared by all three seeded accounts. */
+export const DEMO_AFFILIATE_PASSWORD = "demo-affiliate-2026";
+
 const AFFILIATES = [
   { code: "AMINA10", name: "Amina Rahim", email: "amina.affiliate@example.com", phone: "012-300 4455", commissionRate: 0.1 },
   { code: "DAPURKITA", name: "Dapur Kita", email: "hello@dapurkita.example.com", phone: "03-8899 1122", commissionRate: 0.125 },
@@ -51,6 +54,10 @@ export async function seedDemoData() {
   const existing = await db.query<{ count: string }>(`SELECT count(*)::text AS count FROM orders`);
   if (Number(existing.rows[0]?.count ?? 0) > 0) {
     const affiliates = await affiliateStore.list();
+    // Databases seeded before the portal existed have no passwords. Setting
+    // them here means an existing demo picks up portal access on a re-run
+    // instead of needing --reset.
+    await givePortalAccess(affiliates);
     const all = await orderStore.list({ limit: 200 });
     return {
       affiliates: affiliates.length,
@@ -63,6 +70,7 @@ export async function seedDemoData() {
 
   for (const input of AFFILIATES) await affiliateStore.create(input);
   const affiliates = await affiliateStore.list();
+  await givePortalAccess(affiliates);
 
   const random = seededRandom(20260728);
   const agent = agentConfig();
@@ -163,4 +171,11 @@ export async function seedDemoData() {
   if (affiliates[0]) await affiliateStore.payOut(affiliates[0].id);
 
   return { affiliates: affiliates.length, orders: total, paid, referred, skipped: false };
+}
+
+/** Gives every seeded affiliate the same demo password for the portal. */
+async function givePortalAccess(affiliates: { id: string }[]) {
+  for (const affiliate of affiliates) {
+    await affiliateStore.setPassword(affiliate.id, DEMO_AFFILIATE_PASSWORD);
+  }
 }

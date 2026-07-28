@@ -8,6 +8,7 @@ import { clearThrottle, throttle, verifyPassword } from "@/lib/admin/auth";
 import { endSession, isAdmin, requireAdmin, startSession } from "@/lib/admin/session";
 import { FULFILMENT_STEPS, orderStore, type Fulfilment, type OrderStatus } from "@/lib/orders";
 import { affiliateStore, normaliseCode } from "@/lib/affiliates";
+import { passwordProblem } from "@/lib/affiliate/password-rules";
 
 /** Best-effort client identity for throttling. */
 async function clientKey(): Promise<string> {
@@ -134,6 +135,39 @@ export async function setAffiliateActive(formData: FormData) {
   const updated = await affiliateStore.setActive(id, active);
   revalidatePath("/admin/affiliates");
   if (updated) revalidatePath(`/admin/affiliates/${updated.code}`);
+}
+
+/**
+ * Sets or clears an affiliate's portal password.
+ *
+ * The shop owner creates affiliate accounts, so they set the first password and
+ * pass it on out of band. Clearing it locks the affiliate out of the portal
+ * without touching their code, their rate or anything they have earned.
+ */
+export async function setAffiliatePassword(
+  _prev: { error?: string; ok?: string } | undefined,
+  formData: FormData,
+): Promise<{ error?: string; ok?: string }> {
+  await requireAdmin();
+  const id = String(formData.get("affiliateId") ?? "");
+  const code = String(formData.get("code") ?? "");
+  if (!id) return { error: "Missing affiliate." };
+
+  if (String(formData.get("clear") ?? "") === "true") {
+    await affiliateStore.clearPassword(id);
+    revalidatePath(`/admin/affiliates/${code}`);
+    return { ok: "Password removed. They can no longer sign in to the portal." };
+  }
+
+  const password = String(formData.get("password") ?? "");
+  const problem = passwordProblem(password);
+  if (problem) return { error: problem };
+
+  await affiliateStore.setPassword(id, password);
+  revalidatePath(`/admin/affiliates/${code}`);
+  // Echoed back once so it can be copied and sent on. It is not stored in
+  // readable form anywhere, so this is the only chance to see it.
+  return { ok: `Password set. Send it to them now — it cannot be shown again.` };
 }
 
 export async function setAffiliateRate(formData: FormData) {

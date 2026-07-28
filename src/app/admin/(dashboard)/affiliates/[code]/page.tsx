@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
 import { payOutAffiliate, setAffiliateActive, setAffiliateRate } from "@/app/admin/actions";
+import { PasswordForm } from "@/app/admin/(dashboard)/affiliates/[code]/password-form";
 import { formatDate } from "@/components/admin/order-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ export default async function AffiliatePage({ params }: { params: Promise<{ code
 
   const { affiliate } = summary;
   const { orders } = await orderStore.list({ limit: 100 });
+  const hasPassword = await affiliateStore.hasPassword(affiliate.id);
   const theirs = orders.filter((o) => o.affiliateId === affiliate.id);
 
   const base = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "https://your-domain.my";
@@ -119,6 +121,11 @@ export default async function AffiliatePage({ params }: { params: Promise<{ code
             <p className="mt-3 text-xs leading-5 text-muted-foreground">
               Anyone arriving through this link is attributed to {affiliate.name} for 30 days.
             </p>
+          </section>
+
+          <section className="rounded-lg border border-border bg-card p-6">
+            <h2 className="eyebrow">Portal access</h2>
+            <PasswordForm affiliateId={affiliate.id} code={affiliate.code} hasPassword={hasPassword} />
           </section>
 
           <section className="rounded-lg border border-border bg-card p-6">
