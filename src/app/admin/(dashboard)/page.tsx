@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { OrderTable } from "@/components/admin/order-table";
 import { Button } from "@/components/ui/button";
+import { agentConfig } from "@/lib/agent";
 import { chipConfig } from "@/lib/chip";
 import { usingExternalDatabase } from "@/lib/db/client";
 import { orderStore } from "@/lib/orders";
@@ -16,6 +17,7 @@ export default async function AdminOverviewPage() {
   ]);
 
   const { isLive } = chipConfig();
+  const agent = agentConfig();
   const warnings = [
     !isLive && "CHIP credentials are not set, so payments are simulated and no money is collected.",
     !usingExternalDatabase() &&
@@ -37,11 +39,18 @@ export default async function AdminOverviewPage() {
         </div>
       )}
 
-      <dl className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <dl className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <Stat label="Revenue" value={money(stats.revenue)} hint="Settled orders only" primary />
         <Stat label="Paid orders" value={String(stats.paidCount)} />
         <Stat label="Awaiting fulfilment" value={String(stats.awaitingFulfilment)} hint="Paid, not yet shipped" />
         <Stat label="Awaiting payment" value={String(stats.pendingCount)} />
+        {agent.enabled && (
+          <Stat
+            label={`${agent.name} fees`}
+            value={money(stats.agentFeesOwed)}
+            hint={`${money(agent.feePerSale)} per ${agent.basis === "unit" ? "jar" : "order"}, accrued on paid orders`}
+          />
+        )}
       </dl>
 
       <div className="mt-14 flex items-end justify-between gap-6">

@@ -102,6 +102,23 @@ EXCEPTION
 END
 $$;
 
+-- Agent fee, snapshotted like affiliate commission and for the same reason:
+-- renegotiating the fee must not rewrite what was already earned.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS agent_name text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS agent_fee numeric(10,2);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS agent_fee_status text NOT NULL DEFAULT 'none';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS agent_fee_paid_at timestamptz;
+
+DO $$
+BEGIN
+  ALTER TABLE orders ADD CONSTRAINT orders_agent_fee_status_check
+    CHECK (agent_fee_status IN ('none','pending','paid','void'));
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END
+$$;
+
+CREATE INDEX IF NOT EXISTS orders_agent_fee_status_idx ON orders (agent_fee_status);
 CREATE INDEX IF NOT EXISTS orders_affiliate_idx ON orders (affiliate_id);
 CREATE INDEX IF NOT EXISTS orders_commission_status_idx ON orders (commission_status);
 CREATE INDEX IF NOT EXISTS orders_payment_id_idx ON orders (payment_id);

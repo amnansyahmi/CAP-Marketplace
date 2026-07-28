@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { affiliateStore, commissionFor } from "@/lib/affiliates";
+import { agentConfig, agentFeeFor, totalUnits } from "@/lib/agent";
 import { REFERRAL_COOKIE } from "@/middleware";
 import { createPurchase } from "@/lib/chip";
 import { hasErrors, validateCheckout, type CheckoutInput } from "@/lib/checkout-schema";
@@ -74,8 +75,14 @@ export async function POST(request: Request) {
       }
     : {};
 
+  // The sole agent earns on every sale, referred or not, so this is applied
+  // unconditionally and independently of any affiliate commission above.
+  const agent = agentConfig();
+  const agentFee = agentFeeFor(totalUnits(items), agent);
+
   const draft: NewOrder = {
     ...attribution,
+    ...(agentFee > 0 ? { agentName: agent.name, agentFee } : {}),
     items,
     customer: {
       fullName: body.fullName!.trim(),

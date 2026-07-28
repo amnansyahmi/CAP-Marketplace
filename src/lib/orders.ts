@@ -15,6 +15,7 @@ import { randomUUID } from "node:crypto";
 
 import { getDb } from "@/lib/db/client";
 import type { CommissionStatus } from "@/lib/affiliates";
+import type { AgentFeeStatus } from "@/lib/agent";
 
 export type OrderStatus = "pending_payment" | "paid" | "failed" | "cancelled";
 
@@ -75,6 +76,12 @@ export type Order = {
   commissionAmount?: number;
   commissionStatus: CommissionStatus;
   commissionPaidAt?: string;
+
+  /** Flat fee owed to the sole agent on this sale. */
+  agentName?: string;
+  agentFee?: number;
+  agentFeeStatus: AgentFeeStatus;
+  agentFeePaidAt?: string;
 };
 
 /** A new order before it has an id or reference — the store assigns both. */
@@ -88,6 +95,8 @@ export type NewOrder = Omit<
   | "fulfilmentUpdatedAt"
   | "commissionStatus"
   | "commissionPaidAt"
+  | "agentFeeStatus"
+  | "agentFeePaidAt"
 > & {
   status?: OrderStatus;
 };
@@ -132,6 +141,8 @@ export type OrderStats = {
   failedCount: number;
   /** Paid orders not yet handed to the courier. */
   awaitingFulfilment: number;
+  /** Agent fees accrued on paid orders and not yet paid out. */
+  agentFeesOwed: number;
 };
 
 /** e.g. CA-7F3K9Q — short enough to read down the phone. */
@@ -167,6 +178,10 @@ type OrderRow = {
   commission_amount: string | null;
   commission_status: CommissionStatus;
   commission_paid_at: Date | string | null;
+  agent_name: string | null;
+  agent_fee: string | null;
+  agent_fee_status: AgentFeeStatus;
+  agent_fee_paid_at: Date | string | null;
   subtotal: string;
   shipping: string;
   total: string;
@@ -235,6 +250,10 @@ function rowToOrder(row: OrderRow, items: ItemRow[]): Order {
     commissionAmount: row.commission_amount === null ? undefined : amount(row.commission_amount),
     commissionStatus: row.commission_status,
     commissionPaidAt: row.commission_paid_at ? iso(row.commission_paid_at) : undefined,
+    agentName: row.agent_name ?? undefined,
+    agentFee: row.agent_fee === null ? undefined : amount(row.agent_fee),
+    agentFeeStatus: row.agent_fee_status,
+    agentFeePaidAt: row.agent_fee_paid_at ? iso(row.agent_fee_paid_at) : undefined,
   };
 }
 
@@ -269,8 +288,9 @@ class PostgresOrderStore implements OrderStore {
                customer_full_name, customer_email, customer_phone,
                address_line1, address_line2, address_postcode, address_city, address_state,
                notes, subtotal, shipping, total, currency,
-               affiliate_id, affiliate_code, commission_rate, commission_amount, commission_status
-             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+               affiliate_id, affiliate_code, commission_rate, commission_amount, commission_status,
+               agent_name, agent_fee, agent_fee_status
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
              RETURNING *`,
             [
               id,
@@ -296,6 +316,11 @@ class PostgresOrderStore implements OrderStore {
               // Commission exists from the moment of attribution but is only
               // payable once the order is paid; `payOut` filters on that.
               order.affiliateId ? "pending" : "none",
+              order.agentName ?? null,
+              order.agentFee ?? null,
+              // Accrues from the moment of sale but is only payable once the
+              // order is paid — the same rule as affiliate commission.
+              order.agentFee != null && order.agentFee > 0 ? "pending" : "none",
             ],
           );
 
@@ -371,6 +396,10 @@ class PostgresOrderStore implements OrderStore {
               commission_status = CASE
                 WHEN $2 IN ('failed','cancelled') AND commission_status = 'pending' THEN 'void'
                 ELSE commission_status
+              END,
+              agent_fee_status = CASE
+                WHEN $2 IN ('failed','cancelled') AND agent_fee_status = 'pending' THEN 'void'
+                ELSE agent_fee_status
               END
         WHERE id = $1
           AND (status <> 'paid' OR $2 = 'paid')
@@ -450,6 +479,7 @@ class PostgresOrderStore implements OrderStore {
       pending: string;
       failed: string;
       awaiting: string;
+      agent_owed: string;
     }>(
       `SELECT
          COALESCE(SUM(total) FILTER (WHERE status = 'paid'), 0)::text AS revenue,
@@ -457,7 +487,10 @@ class PostgresOrderStore implements OrderStore {
          count(*) FILTER (WHERE status = 'pending_payment')::text  AS pending,
          count(*) FILTER (WHERE status = 'failed')::text           AS failed,
          count(*) FILTER (WHERE status = 'paid'
-                            AND fulfilment IN ('unfulfilled','packed'))::text AS awaiting
+                            AND fulfilment IN ('unfulfilled','packed'))::text AS awaiting,
+         COALESCE(SUM(agent_fee) FILTER (
+           WHERE agent_fee_status = 'pending' AND status = 'paid'
+         ), 0)::text AS agent_owed
        FROM orders`,
     );
     const r = rows.rows[0];
@@ -467,6 +500,7 @@ class PostgresOrderStore implements OrderStore {
       pendingCount: Number(r?.pending ?? 0),
       failedCount: Number(r?.failed ?? 0),
       awaitingFulfilment: Number(r?.awaiting ?? 0),
+      agentFeesOwed: amount(r?.agent_owed ?? "0"),
     };
   }
 

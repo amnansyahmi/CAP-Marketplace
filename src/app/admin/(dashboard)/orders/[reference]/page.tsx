@@ -190,6 +190,25 @@ export default async function AdminOrderPage({
             )}
           </section>
 
+          {order.agentFee != null && (
+            <section className="rounded-lg border border-border bg-card p-6">
+              <h2 className="eyebrow">Agent fee</h2>
+              <dl className="mt-4 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">{order.agentName ?? "Agent"}</dt>
+                  <dd className="font-semibold">{money(order.agentFee)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Status</dt>
+                  <dd>{order.agentFeeStatus}</dd>
+                </div>
+              </dl>
+              <p className="mt-4 text-xs leading-5 text-muted-foreground">
+                Flat fee on every sale, separate from any affiliate commission.
+              </p>
+            </section>
+          )}
+
           {order.affiliateCode && (
             <section className="rounded-lg border border-border bg-card p-6">
               <h2 className="eyebrow">Referred by</h2>
