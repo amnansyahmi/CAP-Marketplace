@@ -266,3 +266,118 @@ describe("references are unique", () => {
     assert.equal(refs.size, 25);
   });
 });
+
+describe("admin queries", () => {
+  it("filters by payment status", async () => {
+    const paid = await orderStore.create(draft());
+    await orderStore.setStatus(paid.id, "paid");
+    await orderStore.create(draft());
+
+    const { orders } = await orderStore.list({ status: "paid", limit: 100 });
+    assert.ok(orders.length > 0);
+    assert.ok(orders.every((o) => o.status === "paid"), "a non-paid order came back from a paid filter");
+    assert.ok(orders.some((o) => o.id === paid.id));
+  });
+
+  it("searches by reference, name and email", async () => {
+    const created = await orderStore.create(
+      draft({ customer: { fullName: "Zulkifli Rahman", email: "zul@example.com", phone: "012-000 0000" } }),
+    );
+
+    for (const term of [created.reference, "zulkifli", "zul@example.com"]) {
+      const { orders } = await orderStore.list({ search: term, limit: 100 });
+      assert.ok(orders.some((o) => o.id === created.id), `search for "${term}" missed the order`);
+    }
+  });
+
+  it("is case-insensitive when searching", async () => {
+    const created = await orderStore.create(
+      draft({ customer: { fullName: "Siti Aminah", email: "SITI@Example.COM", phone: "012-000 0000" } }),
+    );
+    const { orders } = await orderStore.list({ search: "siti@example.com", limit: 100 });
+    assert.ok(orders.some((o) => o.id === created.id));
+  });
+
+  it("treats a search term as data, not SQL", async () => {
+    // If the term were interpolated this would drop the table.
+    const { orders, total } = await orderStore.list({ search: "'; DROP TABLE orders; --", limit: 100 });
+    assert.equal(orders.length, 0);
+    assert.equal(total, 0);
+    // Still usable afterwards.
+    const check = await orderStore.create(draft());
+    assert.ok(await orderStore.byReference(check.reference), "the orders table did not survive");
+  });
+
+  it("paginates without overlapping", async () => {
+    for (let i = 0; i < 5; i++) await orderStore.create(draft());
+    const first = await orderStore.list({ limit: 2, offset: 0 });
+    const second = await orderStore.list({ limit: 2, offset: 2 });
+    const overlap = first.orders.filter((a) => second.orders.some((b) => b.id === a.id));
+    assert.equal(overlap.length, 0, "pages returned the same order twice");
+    assert.ok(first.total >= 5);
+  });
+
+  it("returns line items with each listed order", async () => {
+    await orderStore.create(draft());
+    const { orders } = await orderStore.list({ limit: 5 });
+    assert.ok(orders.every((o) => o.items.length > 0), "a listed order came back with no items");
+  });
+
+  it("counts revenue from settled orders only", async () => {
+    const before = await orderStore.stats();
+
+    const unpaid = await orderStore.create(draft({ total: 500 }));
+    const afterUnpaid = await orderStore.stats();
+    assert.equal(afterUnpaid.revenue, before.revenue, "an unpaid order was counted as revenue");
+
+    await orderStore.setStatus(unpaid.id, "paid");
+    const afterPaid = await orderStore.stats();
+    assert.equal(afterPaid.revenue, before.revenue + 500);
+    assert.equal(afterPaid.paidCount, before.paidCount + 1);
+  });
+});
+
+describe("fulfilment", () => {
+  it("refuses to fulfil an order that has not been paid", async () => {
+    const created = await orderStore.create(draft());
+    const refused = await orderStore.setFulfilment(created.id, "shipped");
+    assert.equal(refused, undefined, "an unpaid order was marked shipped");
+    assert.equal((await orderStore.byReference(created.reference))?.fulfilment, "unfulfilled");
+  });
+
+  it("moves a paid order through the steps and records tracking", async () => {
+    const created = await orderStore.create(draft());
+    await orderStore.setStatus(created.id, "paid");
+
+    const packed = await orderStore.setFulfilment(created.id, "packed");
+    assert.equal(packed?.fulfilment, "packed");
+
+    const shipped = await orderStore.setFulfilment(created.id, "shipped", "MY123456789");
+    assert.equal(shipped?.fulfilment, "shipped");
+    assert.equal(shipped?.trackingNumber, "MY123456789");
+    assert.ok(shipped?.fulfilmentUpdatedAt);
+  });
+
+  it("keeps the tracking number when a later step omits it", async () => {
+    const created = await orderStore.create(draft());
+    await orderStore.setStatus(created.id, "paid");
+    await orderStore.setFulfilment(created.id, "shipped", "MY999");
+    const delivered = await orderStore.setFulfilment(created.id, "delivered");
+    assert.equal(delivered?.trackingNumber, "MY999", "tracking was cleared by a later update");
+  });
+
+  it("counts paid-but-unshipped orders as awaiting fulfilment", async () => {
+    const before = (await orderStore.stats()).awaitingFulfilment;
+    const created = await orderStore.create(draft());
+    await orderStore.setStatus(created.id, "paid");
+    assert.equal((await orderStore.stats()).awaitingFulfilment, before + 1);
+
+    await orderStore.setFulfilment(created.id, "shipped");
+    assert.equal((await orderStore.stats()).awaitingFulfilment, before, "a shipped order still counted as awaiting");
+  });
+
+  it("starts new orders unfulfilled", async () => {
+    const created = await orderStore.create(draft());
+    assert.equal(created.fulfilment, "unfulfilled");
+  });
+});

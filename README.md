@@ -107,6 +107,40 @@ the current API reference first.
 - `paid` is terminal — a late failure webhook cannot silently reverse a
   settled order.
 
+## Admin
+
+`/admin` covers the other half of the flow: what happens after a customer pays.
+
+- **Overview** — revenue from settled orders, counts, and what is waiting to go out
+- **Orders** — filter by payment or fulfilment state, search by reference, name
+  or email, paginated
+- **Order detail** — full order, delivery address and contact, plus fulfilment
+  actions and a tracking number
+
+Orders carry a fulfilment state (`unfulfilled → packed → shipped → delivered`)
+separately from payment status, because the two are independent.
+
+### Access
+
+The admin area exposes customers' names, phone numbers and home addresses, so it
+**fails closed**: unless both variables below are set it is disabled outright,
+and every route redirects to a sign-in page that will not accept any password.
+
+| Variable | Purpose |
+| --- | --- |
+| `ADMIN_PASSWORD` | Shared password, minimum 12 characters |
+| `ADMIN_SESSION_SECRET` | Signs the session cookie — `openssl rand -base64 32` |
+
+- The session is an HMAC-signed, `httpOnly`, `sameSite=lax` cookie lasting eight
+  hours. Editing the expiry invalidates the signature.
+- Passwords are compared in constant time.
+- Failed sign-ins are throttled per client. That counter is in-process, so put a
+  rate limit at the edge as well if the admin area faces the internet.
+- Every server action re-checks the session. Layout protection guards
+  navigation, but an action is an endpoint and can be called directly.
+- A single shared password suits one shop owner. For more than one person,
+  replace it with real accounts rather than sharing the secret.
+
 ## Product assets
 
 `public/products/*.webp` are transparent cutouts used throughout the site;
@@ -125,5 +159,5 @@ from its label colour band.
 3. Stock levels. Nothing stops an order for more jars than exist.
 4. Rate limiting on `POST /api/orders`.
 5. Wire up or remove the footer newsletter form; it currently does nothing.
-6. Admin order management and weekly commission reporting.
+6. Weekly commission reporting, building on the admin overview.
 7. Lifestyle/recipe photography for the story section.

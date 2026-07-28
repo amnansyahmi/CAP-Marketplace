@@ -50,6 +50,28 @@ CREATE TABLE IF NOT EXISTS order_items (
   PRIMARY KEY (order_id, product_id)
 );
 
+-- Fulfilment is tracked separately from payment: they are orthogonal. An order
+-- is paid or not; a paid order then moves through packing and shipping. Folding
+-- both into one column would make "paid and shipped" unrepresentable.
+-- Added with IF NOT EXISTS so databases created before this existed pick it up
+-- without a migration step. Real migrations are still needed before the shape
+-- of a live table changes — see the note at the top of this file.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS fulfilment text NOT NULL DEFAULT 'unfulfilled';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_number text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS fulfilment_updated_at timestamptz;
+
+DO $$
+BEGIN
+  ALTER TABLE orders ADD CONSTRAINT orders_fulfilment_check
+    CHECK (fulfilment IN ('unfulfilled','packed','shipped','delivered'));
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END
+$$;
+
 CREATE INDEX IF NOT EXISTS orders_payment_id_idx ON orders (payment_id);
 CREATE INDEX IF NOT EXISTS orders_created_at_idx ON orders (created_at DESC);
+CREATE INDEX IF NOT EXISTS orders_status_idx ON orders (status);
+CREATE INDEX IF NOT EXISTS orders_fulfilment_idx ON orders (fulfilment);
+CREATE INDEX IF NOT EXISTS orders_customer_email_idx ON orders (lower(customer_email));
 `;

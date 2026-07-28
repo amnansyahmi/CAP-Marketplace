@@ -17,6 +17,15 @@ import { getDb } from "@/lib/db/client";
 
 export type OrderStatus = "pending_payment" | "paid" | "failed" | "cancelled";
 
+/**
+ * Where the parcel is. Kept separate from payment status because the two are
+ * orthogonal — an order is paid or not, and a paid order then moves through
+ * packing and shipping.
+ */
+export type Fulfilment = "unfulfilled" | "packed" | "shipped" | "delivered";
+
+export const FULFILMENT_STEPS: Fulfilment[] = ["unfulfilled", "packed", "shipped", "delivered"];
+
 export type OrderItem = {
   productId: string;
   name: string;
@@ -53,10 +62,16 @@ export type Order = {
   paymentUrl?: string;
   createdAt: string;
   paidAt?: string;
+  fulfilment: Fulfilment;
+  trackingNumber?: string;
+  fulfilmentUpdatedAt?: string;
 };
 
 /** A new order before it has an id or reference — the store assigns both. */
-export type NewOrder = Omit<Order, "id" | "reference" | "createdAt" | "status"> & {
+export type NewOrder = Omit<
+  Order,
+  "id" | "reference" | "createdAt" | "status" | "fulfilment" | "fulfilmentUpdatedAt"
+> & {
   status?: OrderStatus;
 };
 
@@ -71,7 +86,36 @@ export interface OrderStore {
   ): Promise<Order | undefined>;
   /** Atomic status change. Returns undefined when the change was refused. */
   setStatus(id: string, status: OrderStatus): Promise<Order | undefined>;
+
+  // --- admin ---------------------------------------------------------------
+  list(filter?: OrderFilter): Promise<{ orders: Order[]; total: number }>;
+  stats(): Promise<OrderStats>;
+  /** Only a paid order can be fulfilled. Returns undefined when refused. */
+  setFulfilment(
+    id: string,
+    fulfilment: Fulfilment,
+    trackingNumber?: string | null,
+  ): Promise<Order | undefined>;
 }
+
+export type OrderFilter = {
+  status?: OrderStatus;
+  fulfilment?: Fulfilment;
+  /** Matches an order reference or customer email. */
+  search?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type OrderStats = {
+  /** Revenue from settled orders only. */
+  revenue: number;
+  paidCount: number;
+  pendingCount: number;
+  failedCount: number;
+  /** Paid orders not yet handed to the courier. */
+  awaitingFulfilment: number;
+};
 
 /** e.g. CA-7F3K9Q — short enough to read down the phone. */
 export function newOrderReference() {
@@ -97,6 +141,9 @@ type OrderRow = {
   address_city: string;
   address_state: string;
   notes: string | null;
+  fulfilment: Fulfilment;
+  tracking_number: string | null;
+  fulfilment_updated_at: Date | string | null;
   subtotal: string;
   shipping: string;
   total: string;
@@ -156,6 +203,9 @@ function rowToOrder(row: OrderRow, items: ItemRow[]): Order {
     paymentUrl: row.payment_url ?? undefined,
     createdAt: iso(row.created_at),
     paidAt: row.paid_at ? iso(row.paid_at) : undefined,
+    fulfilment: row.fulfilment,
+    trackingNumber: row.tracking_number ?? undefined,
+    fulfilmentUpdatedAt: row.fulfilment_updated_at ? iso(row.fulfilment_updated_at) : undefined,
   };
 }
 
@@ -281,6 +331,113 @@ class PostgresOrderStore implements OrderStore {
           AND (status <> 'paid' OR $2 = 'paid')
         RETURNING *`,
       [id, status],
+    );
+    return this.hydrate(rows.rows);
+  }
+
+  // --- admin -----------------------------------------------------------------
+
+  async list(filter: OrderFilter = {}) {
+    const db = await getDb();
+
+    // Conditions are assembled as parameter placeholders; no caller input is
+    // ever interpolated into the SQL string.
+    const where: string[] = [];
+    const params: unknown[] = [];
+
+    if (filter.status) {
+      params.push(filter.status);
+      where.push(`status = $${params.length}`);
+    }
+    if (filter.fulfilment) {
+      params.push(filter.fulfilment);
+      where.push(`fulfilment = $${params.length}`);
+    }
+    if (filter.search?.trim()) {
+      params.push(`%${filter.search.trim().toLowerCase()}%`);
+      const p = `$${params.length}`;
+      where.push(`(lower(reference) LIKE ${p} OR lower(customer_email) LIKE ${p} OR lower(customer_full_name) LIKE ${p})`);
+    }
+
+    const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const limit = Math.min(100, Math.max(1, filter.limit ?? 25));
+    const offset = Math.max(0, filter.offset ?? 0);
+
+    const counted = await db.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM orders ${clause}`,
+      params,
+    );
+
+    const rows = await db.query<OrderRow>(
+      `SELECT * FROM orders ${clause} ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset],
+    );
+
+    // One query for every line rather than one per order.
+    const ids = rows.rows.map((r) => r.id);
+    const items = ids.length
+      ? await db.query<ItemRow & { order_id: string }>(
+          `SELECT order_id, product_id, name, unit_price, quantity, line_total
+             FROM order_items WHERE order_id = ANY($1) ORDER BY position`,
+          [ids],
+        )
+      : { rows: [] };
+
+    const byOrder = new Map<string, ItemRow[]>();
+    for (const item of items.rows) {
+      const list = byOrder.get(item.order_id) ?? [];
+      list.push(item);
+      byOrder.set(item.order_id, list);
+    }
+
+    return {
+      orders: rows.rows.map((r) => rowToOrder(r, byOrder.get(r.id) ?? [])),
+      total: Number(counted.rows[0]?.count ?? 0),
+    };
+  }
+
+  async stats(): Promise<OrderStats> {
+    const db = await getDb();
+    // Revenue counts settled orders only — an unpaid order is not income.
+    const rows = await db.query<{
+      revenue: string;
+      paid: string;
+      pending: string;
+      failed: string;
+      awaiting: string;
+    }>(
+      `SELECT
+         COALESCE(SUM(total) FILTER (WHERE status = 'paid'), 0)::text AS revenue,
+         count(*) FILTER (WHERE status = 'paid')::text            AS paid,
+         count(*) FILTER (WHERE status = 'pending_payment')::text  AS pending,
+         count(*) FILTER (WHERE status = 'failed')::text           AS failed,
+         count(*) FILTER (WHERE status = 'paid'
+                            AND fulfilment IN ('unfulfilled','packed'))::text AS awaiting
+       FROM orders`,
+    );
+    const r = rows.rows[0];
+    return {
+      revenue: amount(r?.revenue ?? "0"),
+      paidCount: Number(r?.paid ?? 0),
+      pendingCount: Number(r?.pending ?? 0),
+      failedCount: Number(r?.failed ?? 0),
+      awaitingFulfilment: Number(r?.awaiting ?? 0),
+    };
+  }
+
+  async setFulfilment(id: string, fulfilment: Fulfilment, trackingNumber?: string | null) {
+    const db = await getDb();
+    // `status = 'paid'` in the WHERE clause: an unpaid order must never be
+    // marked shipped, and enforcing it here means no caller can forget to check.
+    const rows = await db.query<OrderRow>(
+      `UPDATE orders
+          SET fulfilment            = $2,
+              tracking_number       = COALESCE($3, tracking_number),
+              fulfilment_updated_at = now()
+        WHERE id = $1
+          AND status = 'paid'
+        RETURNING *`,
+      [id, fulfilment, trackingNumber ?? null],
     );
     return this.hydrate(rows.rows);
   }
