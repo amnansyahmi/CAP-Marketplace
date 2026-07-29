@@ -193,6 +193,37 @@ read every customer's name, phone number and delivery address.
 - A single shared password suits one shop owner. For more than one person,
   replace it with real accounts rather than sharing the secret.
 
+## Stock
+
+Off by default, and opt-in per product from `/admin/stock`. Turning stock on for
+a shop that has never counted its jars would take the whole catalogue off sale
+the moment the table appeared, so untracked products sell exactly as they did
+before.
+
+**Stock is held when an order is placed, not when it is paid.** Someone on the
+payment page is holding the last jar; decrementing only on payment would let a
+second customer buy it while the first is still typing their card number, and
+one of them would get an apology instead of a delivery. So an order reserves as
+it is created, the reservation becomes a sale when payment settles, and it goes
+back if the payment fails or is cancelled.
+
+Available stock is `on_hand - reserved`. The check and the write happen inside
+one transaction with `SELECT ... FOR UPDATE`, because checking first and writing
+after would let two requests both read "one left" and both decide they may have
+it. Reservations are all-or-nothing across an order: a customer should not end
+up with half a bag because one line ran out at checkout.
+
+A reservation is released exactly once, guarded by a `stock_state` column on the
+order. Without that, an order that failed and was then cancelled would hand its
+jars back twice and invent inventory the shop does not have.
+
+The storefront reads `/api/availability` from the browser rather than rendering
+stock into the page, so the shop and product pages keep their static rendering.
+That is a courtesy — the sold-out badge and the disabled button. The order API
+re-checks and reserves server-side, so a stale or edited answer cannot oversell
+anything; a request for more than is available comes back `409` naming the item
+that ran out.
+
 ## Emails
 
 The shop sends two messages: a confirmation when an order is paid, and a

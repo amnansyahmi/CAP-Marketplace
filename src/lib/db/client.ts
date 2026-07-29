@@ -146,16 +146,42 @@ async function connectPglite(): Promise<Db> {
     async exec(sql) {
       await pg.exec(sql);
     },
+    /**
+     * PGlite is a single connection, so transactions have to be serialised.
+     *
+     * Issuing BEGIN/COMMIT with `exec` would put every concurrent caller on the
+     * same session: their statements interleave, a nested BEGIN is ignored, and
+     * the first COMMIT ends the transaction for everyone. Two requests racing
+     * for the last jar would both read "one available" and both take it —
+     * exactly the failure `SELECT ... FOR UPDATE` exists to prevent, and it
+     * would pass every local test while the pooled Postgres driver behaved
+     * correctly in production.
+     *
+     * The queue makes concurrent transactions run one after another, which is
+     * stricter than Postgres and therefore safe: anything that holds here holds
+     * on a real database too.
+     */
     async transaction(fn) {
-      await pg.exec("BEGIN");
-      try {
-        const out = await fn(base);
-        await pg.exec("COMMIT");
-        return out;
-      } catch (error) {
-        await pg.exec("ROLLBACK");
-        throw error;
-      }
+      const run = async () => {
+        await pg.exec("BEGIN");
+        try {
+          const out = await fn(base);
+          await pg.exec("COMMIT");
+          return out;
+        } catch (error) {
+          await pg.exec("ROLLBACK");
+          throw error;
+        }
+      };
+
+      // Chain onto whatever is already running, and keep the chain alive even
+      // when a transaction throws, so one failure does not wedge the queue.
+      const result = pgliteQueue.then(run, run);
+      pgliteQueue = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      return result;
     },
     async close() {
       await pg.close();
@@ -163,6 +189,9 @@ async function connectPglite(): Promise<Db> {
   };
   return base;
 }
+
+/** Serialises PGlite transactions — see the note in `connectPglite`. */
+let pgliteQueue: Promise<unknown> = Promise.resolve();
 
 /**
  * Closes the pooled connection and forgets it, so the next `getDb()` reconnects.

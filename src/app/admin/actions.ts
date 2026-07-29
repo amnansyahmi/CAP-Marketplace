@@ -10,6 +10,7 @@ import { FULFILMENT_STEPS, orderStore, type Fulfilment, type OrderStatus } from 
 import { affiliateStore, normaliseCode } from "@/lib/affiliates";
 import { passwordProblem } from "@/lib/affiliate/password-rules";
 import { notifyOrderShipped } from "@/lib/notifications/order-events";
+import { setStock } from "@/lib/stock";
 
 /** Best-effort client identity for throttling. */
 async function clientKey(): Promise<string> {
@@ -196,4 +197,30 @@ export async function payOutAffiliate(formData: FormData) {
   await affiliateStore.payOut(id);
   revalidatePath("/admin/affiliates");
   if (code) revalidatePath(`/admin/affiliates/${code}`);
+}
+
+export async function updateStock(
+  _prev: { message?: string } | undefined,
+  formData: FormData,
+): Promise<{ message?: string }> {
+  await requireAdmin();
+
+  const productId = String(formData.get("productId") ?? "");
+  const onHand = Number(formData.get("onHand"));
+  // An unchecked checkbox sends nothing, so absence means "not tracked".
+  const tracked = String(formData.get("tracked") ?? "") === "true";
+  if (!productId || !Number.isFinite(onHand) || onHand < 0) {
+    return { message: "That is not a valid stock count." };
+  }
+
+  const level = await setStock(productId, { tracked, onHand });
+  if (!level) return { message: "That product is not in the catalogue." };
+
+  revalidatePath("/admin/stock");
+  // The storefront reads availability, so it has to be rebuilt too.
+  revalidatePath("/");
+  revalidatePath("/checkout");
+
+  if (!level.tracked) return { message: "Saved. This product now sells without a stock limit." };
+  return { message: `Saved. ${level.available} available${level.reserved > 0 ? `, ${level.reserved} held by unpaid orders` : ""}.` };
 }

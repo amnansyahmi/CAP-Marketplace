@@ -11,6 +11,8 @@ import { ORDER_COOKIE, addToOrderCookie, issueOrderToken } from "@/lib/order-acc
 import { orderStore, type NewOrder, type OrderItem } from "@/lib/orders";
 import { productById } from "@/lib/products";
 import { quoteShipping, round } from "@/lib/shipping";
+import { commitReservation, markReserved, releaseReservation, reserve } from "@/lib/stock";
+import { productById as lookupProduct } from "@/lib/products";
 
 /** Uses randomness and a mutable store — must not be prerendered or cached. */
 export const dynamic = "force-dynamic";
@@ -106,9 +108,26 @@ export async function POST(request: Request) {
     currency: "MYR",
   };
 
+  // Stock is held before the order exists, so a customer is never given an
+  // order number for jars the shop cannot ship.
+  const held = await reserve(items.map((i) => ({ productId: i.productId, quantity: i.quantity })));
+  if (!held.ok) {
+    const detail = held.shortfalls
+      .map((s) => {
+        const name = lookupProduct(s.productId)?.name ?? s.productId;
+        return s.available === 0 ? `${name} is sold out` : `only ${s.available} left of ${name}`;
+      })
+      .join(", ");
+    return NextResponse.json(
+      { error: `Sorry — ${detail}. Please adjust your bag and try again.`, shortfalls: held.shortfalls },
+      { status: 409 },
+    );
+  }
+
   // Persisted before contacting the gateway, so a payment can always be traced
   // back to an order even if the process dies mid-request.
   const order = await orderStore.create(draft);
+  await markReserved(order.id);
 
   const origin = baseUrl(request);
   // Carried on the gateway return links too: the customer may well come back
@@ -132,7 +151,10 @@ export async function POST(request: Request) {
 
     // With a live gateway the confirmation is sent from the webhook instead,
     // once CHIP says the money actually arrived.
-    if (settled?.status === "paid") await notifyOrderPaid(settled);
+    if (settled?.status === "paid") {
+      await commitReservation(settled.id);
+      await notifyOrderPaid(settled);
+    }
 
     const response = NextResponse.json({
       reference: order.reference,
@@ -154,6 +176,8 @@ export async function POST(request: Request) {
     return response;
   } catch (error) {
     await orderStore.setStatus(order.id, "failed");
+    // The gateway never got the order, so the jars go straight back.
+    await releaseReservation(order.id);
     console.error("Failed to create CHIP purchase", error);
     return NextResponse.json(
       { error: "We could not start the payment. Please try again." },

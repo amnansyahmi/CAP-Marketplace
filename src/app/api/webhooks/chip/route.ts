@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { verifyWebhookSignature } from "@/lib/chip";
 import { notifyOrderPaid } from "@/lib/notifications/order-events";
 import { orderStore, type OrderStatus } from "@/lib/orders";
+import { commitReservation, releaseReservation } from "@/lib/stock";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +61,9 @@ export async function POST(request: Request) {
 
   // Only reached when the UPDATE actually moved the order, so a retried
   // callback that found it already settled never gets here.
+  if (updated.status === "paid") await commitReservation(updated.id);
+  else await releaseReservation(updated.id);
+
   await notifyOrderPaid(updated);
 
   return NextResponse.json({ status: updated.status });

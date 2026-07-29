@@ -6,6 +6,7 @@ import { useState } from "react";
 import { BRAND_TAGLINE, HERITAGE_NOTE, products, startingPrice, type Product } from "@/lib/products";
 import { useCart } from "@/lib/cart-context";
 import { useAddToBag } from "@/lib/use-add-to-bag";
+import { useAvailability, type Availability } from "@/lib/use-availability";
 import { ZONE_RATES } from "@/lib/shipping";
 import { cn, money } from "@/lib/utils";
 import { SiteHeader } from "@/components/site-header";
@@ -146,6 +147,7 @@ function Promises() {
 }
 
 function Collection({ onAdd, onQuickView }: { onAdd: (p: Product) => void; onQuickView: (p: Product) => void }) {
+  const stock = useAvailability();
   return (
     <section id="collection" className="mx-auto max-w-[1440px] px-5 py-20 lg:px-10 lg:py-28">
       <Reveal className="mb-12 flex items-end justify-between gap-8">
@@ -162,7 +164,12 @@ function Collection({ onAdd, onQuickView }: { onAdd: (p: Product) => void; onQui
         {products.map((p, i) => (
           // Staggered so the three cards arrive in sequence rather than as one block.
           <Reveal key={p.id} delay={i * 120}>
-            <ProductCard product={p} onAdd={() => onAdd(p)} onQuickView={() => onQuickView(p)} />
+            <ProductCard
+              product={p}
+              stock={stock.get(p.id)}
+              onAdd={() => onAdd(p)}
+              onQuickView={() => onQuickView(p)}
+            />
           </Reveal>
         ))}
       </div>
@@ -170,9 +177,23 @@ function Collection({ onAdd, onQuickView }: { onAdd: (p: Product) => void; onQui
   );
 }
 
-function ProductCard({ product, onAdd, onQuickView }: { product: Product; onAdd: () => void; onQuickView: () => void }) {
+function ProductCard({
+  product,
+  stock,
+  onAdd,
+  onQuickView,
+}: {
+  product: Product;
+  stock?: Availability;
+  onAdd: () => void;
+  onQuickView: () => void;
+}) {
   const { lines } = useCart();
   const quantity = lines.find((l) => l.product.id === product.id)?.quantity ?? 0;
+  const soldOut = stock?.soldOut ?? false;
+  // Only worth mentioning when it is genuinely nearly gone; "8 left" on a
+  // shelf of 200 is noise dressed up as urgency.
+  const lastFew = !soldOut && stock?.available != null && stock.available <= 5 ? stock.available : null;
 
   return (
     <Card className="group gap-0 overflow-hidden transition-[transform,box-shadow] duration-500 hover:-translate-y-1.5 hover:shadow-[0_26px_50px_-26px_rgba(60,32,12,.5)] motion-reduce:hover:translate-y-0">
@@ -227,15 +248,21 @@ function ProductCard({ product, onAdd, onQuickView }: { product: Product; onAdd:
             <span className="mt-1 block text-[11px] text-muted-foreground">{product.weightGrams}g</span>
           </div>
         </div>
-        <div className="mt-5 flex gap-2">
+        <div className="mt-5 flex flex-wrap gap-2">
           {product.tags.slice(0, 1).map((t) => (
             <Badge key={t}>{t}</Badge>
           ))}
+          {soldOut && <Badge className="border-destructive/40 text-destructive">Sold out</Badge>}
+          {lastFew !== null && (
+            <Badge className="border-primary/40 text-primary">
+              {lastFew === 1 ? "Last one" : `Only ${lastFew} left`}
+            </Badge>
+          )}
         </div>
       </CardContent>
       <CardFooter className="gap-3 pb-6 pt-5">
-        <Button variant="outline" className="flex-1" onClick={onAdd}>
-          Add to bag
+        <Button variant="outline" className="flex-1" onClick={onAdd} disabled={soldOut}>
+          {soldOut ? "Sold out" : "Add to bag"}
         </Button>
       </CardFooter>
     </Card>

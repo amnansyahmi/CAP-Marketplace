@@ -83,6 +83,38 @@ CREATE TABLE IF NOT EXISTS affiliates (
   created_at      timestamptz NOT NULL DEFAULT now()
 );
 
+-- Stock, one row per catalogue product.
+--
+-- "tracked" is false by default and opt-in per product. Turning stock on for a
+-- shop that has never counted its jars would take every product off sale the
+-- moment this table appeared; the owner switches it on once they know the
+-- number.
+--
+-- "reserved" is stock held by orders that are placed but not yet paid. Available
+-- stock is on_hand - reserved, so two people cannot both buy the last jar while
+-- one of them is still on the payment page.
+CREATE TABLE IF NOT EXISTS product_stock (
+  product_id text PRIMARY KEY,
+  tracked    boolean NOT NULL DEFAULT false,
+  on_hand    integer NOT NULL DEFAULT 0 CHECK (on_hand >= 0),
+  reserved   integer NOT NULL DEFAULT 0 CHECK (reserved >= 0),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Where an order stands with stock, so a reservation is released exactly once.
+-- Without this, an order that failed and was then cancelled would give its
+-- reservation back twice and invent inventory that does not exist.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_state text NOT NULL DEFAULT 'none';
+
+DO $$
+BEGIN
+  ALTER TABLE orders ADD CONSTRAINT orders_stock_state_check
+    CHECK (stock_state IN ('none','reserved','committed','released'));
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END
+$$;
+
 -- One row per message we have decided to send about an order.
 --
 -- The primary key is the claim: a sender inserts before sending, and a second
