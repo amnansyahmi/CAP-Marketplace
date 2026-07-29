@@ -32,8 +32,11 @@ export type Sale = {
   status: OrderStatus;
   fulfilment: string;
   currency: "MYR";
-  /** Goods only, before delivery. */
+  /** Goods only, before delivery and before any discount. */
   subtotal: number;
+  /** Code applied, and what it took off the subtotal. Null when none. */
+  discountCode: string | null;
+  discountAmount: number | null;
   shipping: number;
   total: number;
   /** Jars in the order. */
@@ -92,6 +95,8 @@ type SaleRow = {
   commission_status: CommissionStatus;
   refunded_at: Date | string | null;
   refund_amount: string | null;
+  discount_code: string | null;
+  discount_amount: string | null;
 };
 
 type LineRow = {
@@ -170,7 +175,7 @@ export async function listSales(query: SalesQuery) {
             currency, created_at, paid_at,
             agent_name, agent_fee, agent_fee_status,
             affiliate_code, commission_amount, commission_status,
-            refunded_at, refund_amount
+            refunded_at, refund_amount, discount_code, discount_amount
        FROM orders ${clause}
       ORDER BY created_at DESC, id DESC
       LIMIT $${params.length + 1}`,
@@ -212,6 +217,11 @@ export async function listSales(query: SalesQuery) {
       fulfilment: row.fulfilment,
       currency: row.currency as "MYR",
       subtotal: num(row.subtotal),
+      // Without this the figures do not reconcile: subtotal + shipping would
+      // not equal total on any discounted order, which reads as a bug to
+      // whoever is checking the numbers.
+      discountCode: row.discount_code,
+      discountAmount: row.discount_amount != null ? num(row.discount_amount) : null,
       shipping: num(row.shipping),
       total: num(row.total),
       units: items.reduce((sum, i) => sum + i.quantity, 0),

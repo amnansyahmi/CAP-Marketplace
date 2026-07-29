@@ -11,6 +11,7 @@ import { affiliateStore, normaliseCode } from "@/lib/affiliates";
 import { passwordProblem } from "@/lib/affiliate/password-rules";
 import { notifyOrderRefunded, notifyOrderShipped } from "@/lib/notifications/order-events";
 import { releaseReservation, returnStock, setStock } from "@/lib/stock";
+import { discountStore } from "@/lib/discounts";
 
 /** Best-effort client identity for throttling. */
 async function clientKey(): Promise<string> {
@@ -84,8 +85,11 @@ export async function updateStatus(formData: FormData) {
 
   const updated = await orderStore.setStatus(id, status);
   // A cancelled order was never paid, so its jars go straight back on the
-  // shelf rather than sitting reserved for a sale that will not happen.
-  if (updated) await releaseReservation(updated.id);
+  // shelf — and a limited discount code gets its use back.
+  if (updated) {
+    await releaseReservation(updated.id);
+    await discountStore.release(updated.id);
+  }
 
   revalidatePath("/admin");
   revalidatePath("/admin/orders");
@@ -124,6 +128,8 @@ export async function refundOrder(
   let stockNote = "";
   try {
     await returnStock(refunded.id);
+    // The sale was reversed, so a limited code should not stay spent on it.
+    await discountStore.release(refunded.id);
   } catch (error) {
     console.error(`Refund ${refunded.reference}: stock could not be returned`, error);
     stockNote = " Stock could not be put back automatically — check /admin/stock.";
@@ -278,4 +284,52 @@ export async function updateStock(
 
   if (!level.tracked) return { message: "Saved. This product now sells without a stock limit." };
   return { message: `Saved. ${level.available} available${level.reserved > 0 ? `, ${level.reserved} held by unpaid orders` : ""}.` };
+}
+
+// --- discounts ---------------------------------------------------------------
+
+export async function createDiscount(
+  _prev: { error?: string; ok?: string } | undefined,
+  formData: FormData,
+): Promise<{ error?: string; ok?: string }> {
+  await requireAdmin();
+
+  const kind = String(formData.get("kind") ?? "percent") === "fixed" ? "fixed" : "percent";
+  const raw = Number(formData.get("value"));
+  if (!Number.isFinite(raw) || raw <= 0) return { error: "Value must be greater than zero." };
+  // The form asks for "20" in both cases; a percentage is stored as a fraction.
+  const value = kind === "percent" ? raw / 100 : raw;
+  if (kind === "percent" && value > 1) return { error: "A percentage cannot be more than 100." };
+
+  const maxRaw = formData.get("maxRedemptions");
+  const expiresRaw = String(formData.get("expiresAt") ?? "").trim();
+
+  try {
+    const created = await discountStore.create({
+      code: String(formData.get("code") ?? ""),
+      kind,
+      value,
+      minSubtotal: Number(formData.get("minSubtotal")) || 0,
+      maxRedemptions: maxRaw ? Number(maxRaw) || null : null,
+      // A date input gives midnight local; the code should last that whole day.
+      expiresAt: expiresRaw ? new Date(`${expiresRaw}T23:59:59`).toISOString() : null,
+    });
+    revalidatePath("/admin/discounts");
+    return { ok: `${created.code} created.` };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not create that code.";
+    // A duplicate is the common mistake and deserves a clearer message than
+    // the driver's.
+    if (/duplicate key/i.test(message)) return { error: "That code already exists." };
+    return { error: message };
+  }
+}
+
+export async function setDiscountActive(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("discountId") ?? "");
+  const active = String(formData.get("active") ?? "") === "true";
+  if (!id) return;
+  await discountStore.setActive(id, active);
+  revalidatePath("/admin/discounts");
 }

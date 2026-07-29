@@ -224,6 +224,34 @@ re-checks and reserves server-side, so a stale or edited answer cannot oversell
 anything; a request for more than is available comes back `409` naming the item
 that ran out.
 
+## Discount codes
+
+Managed at `/admin/discounts`: percentage or fixed-ringgit, with an optional
+minimum spend, usage limit and expiry. Customers enter one at checkout.
+
+Two decisions worth naming, because both are about paying the right amount:
+
+- **The discount comes off the goods subtotal, never delivery.** Postage is owed
+  to a courier regardless. A code eating into it would be the shop quietly
+  paying part of the delivery out of its own margin.
+- **Commission is earned on what the shop actually received.** A RM 39.80 bag
+  discounted to RM 31.84 earns a 10% affiliate RM 3.18, not RM 3.98. Paying on
+  the pre-discount figure is the same error as paying commission on delivery:
+  money leaving on revenue that never arrived.
+
+Checking a code and redeeming one are different operations. `/api/discount`
+validates and quotes without consuming anything — a customer looking at their
+total has not bought anything, and burning a limited code on a page view would
+let anyone empty a promotion for free. The redemption is claimed at order time
+inside the UPDATE, so ten simultaneous checkouts against a three-use code
+produce exactly three winners. A use is given back, once, if the payment fails
+or the order is cancelled or refunded.
+
+The subtotal is recomputed from the catalogue on both paths, so a browser cannot
+inflate its own bag to clear a minimum-spend threshold. An unknown code and a
+dead one give the same message, so the form cannot be used to discover which
+codes exist.
+
 ## Refunds and cancellations
 
 An unpaid order can be cancelled from the admin, which puts its reserved stock

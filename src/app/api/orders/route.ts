@@ -11,6 +11,7 @@ import { ORDER_COOKIE, addToOrderCookie, issueOrderToken } from "@/lib/order-acc
 import { orderStore, type NewOrder, type OrderItem } from "@/lib/orders";
 import { productById } from "@/lib/products";
 import { quoteShipping, round } from "@/lib/shipping";
+import { discountStore, normaliseDiscountCode } from "@/lib/discounts";
 import { commitReservation, markReserved, releaseReservation, reserve } from "@/lib/stock";
 import { productById as lookupProduct } from "@/lib/products";
 
@@ -56,11 +57,28 @@ export async function POST(request: Request) {
   }
 
   const subtotal = round(items.reduce((sum, i) => sum + i.lineTotal, 0));
-  const shippingQuote = quoteShipping(subtotal, body.state!);
+
+  // Redeemed here, not merely checked: the claim is what enforces a usage
+  // limit. A code that fails is refused outright rather than quietly ignored —
+  // a customer who typed one expects it to be applied or to be told why.
+  const claimedDiscount = normaliseDiscountCode(body.discountCode);
+  let discount: { code: string; amount: number } | undefined;
+  if (claimedDiscount) {
+    const redeemed = await discountStore.redeem(claimedDiscount, subtotal);
+    if (!redeemed.ok) {
+      return NextResponse.json({ errors: { discountCode: redeemed.reason } }, { status: 422 });
+    }
+    discount = { code: redeemed.code, amount: redeemed.amount };
+  }
+
+  // The discount comes off goods only. Delivery is owed to a courier whatever
+  // the customer paid for the jars.
+  const discountedSubtotal = round(subtotal - (discount?.amount ?? 0));
+  const shippingQuote = quoteShipping(discountedSubtotal, body.state!);
   if (!shippingQuote) {
     return NextResponse.json({ errors: { state: "We do not deliver to that state." } }, { status: 422 });
   }
-  const total = round(subtotal + shippingQuote.fee);
+  const total = round(discountedSubtotal + shippingQuote.fee);
 
   // Referral attribution. The cookie only carries a claimed code; it is looked
   // up here and ignored unless it belongs to an active affiliate, so a customer
@@ -76,7 +94,10 @@ export async function POST(request: Request) {
         affiliateCode: affiliate.code,
         // Snapshotted: a later rate change must not rewrite this order.
         commissionRate: affiliate.commissionRate,
-        commissionAmount: commissionFor(subtotal, affiliate.commissionRate),
+        // On what the shop actually received. Paying a percentage of the
+        // pre-discount figure would send money out on revenue that never
+        // arrived — the same error as paying commission on delivery.
+        commissionAmount: commissionFor(discountedSubtotal, affiliate.commissionRate),
       }
     : {};
 
@@ -103,6 +124,7 @@ export async function POST(request: Request) {
     },
     notes: body.notes?.trim() || undefined,
     subtotal,
+    ...(discount ? { discountCode: discount.code, discountAmount: discount.amount } : {}),
     shipping: shippingQuote.fee,
     total,
     currency: "MYR",
@@ -176,8 +198,10 @@ export async function POST(request: Request) {
     return response;
   } catch (error) {
     await orderStore.setStatus(order.id, "failed");
-    // The gateway never got the order, so the jars go straight back.
+    // The gateway never got the order, so the jars — and the redemption of any
+    // limited code — go straight back.
     await releaseReservation(order.id);
+    await discountStore.release(order.id);
     console.error("Failed to create CHIP purchase", error);
     return NextResponse.json(
       { error: "We could not start the payment. Please try again." },

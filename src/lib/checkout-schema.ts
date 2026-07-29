@@ -16,6 +16,8 @@ export type CheckoutInput = {
   city: string;
   state: string;
   notes?: string;
+  /** Optional voucher. Validated and redeemed server-side, never trusted here. */
+  discountCode?: string;
   items: { productId: string; quantity: number }[];
 };
 

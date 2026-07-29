@@ -57,6 +57,9 @@ export type Order = {
   address: DeliveryAddress;
   notes?: string;
   subtotal: number;
+  /** Taken off the goods subtotal, never off delivery. */
+  discountCode?: string;
+  discountAmount?: number;
   shipping: number;
   total: number;
   currency: "MYR";
@@ -226,6 +229,8 @@ type OrderRow = {
   refunded_at: Date | string | null;
   refund_amount: string | null;
   refund_reason: string | null;
+  discount_code: string | null;
+  discount_amount: string | null;
 };
 
 type ItemRow = {
@@ -280,6 +285,8 @@ function rowToOrder(row: OrderRow, items: ItemRow[]): Order {
     refundedAt: row.refunded_at ? iso(row.refunded_at) : undefined,
     refundAmount: row.refund_amount != null ? Number(row.refund_amount) : undefined,
     refundReason: row.refund_reason ?? undefined,
+    discountCode: row.discount_code ?? undefined,
+    discountAmount: row.discount_amount != null ? Number(row.discount_amount) : undefined,
     fulfilment: row.fulfilment,
     trackingNumber: row.tracking_number ?? undefined,
     fulfilmentUpdatedAt: row.fulfilment_updated_at ? iso(row.fulfilment_updated_at) : undefined,
@@ -328,8 +335,9 @@ class PostgresOrderStore implements OrderStore {
                address_line1, address_line2, address_postcode, address_city, address_state,
                notes, subtotal, shipping, total, currency,
                affiliate_id, affiliate_code, commission_rate, commission_amount, commission_status,
-               agent_name, agent_fee, agent_fee_status
-             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+               agent_name, agent_fee, agent_fee_status,
+               discount_code, discount_amount
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
              RETURNING *`,
             [
               id,
@@ -360,6 +368,8 @@ class PostgresOrderStore implements OrderStore {
               // Accrues from the moment of sale but is only payable once the
               // order is paid — the same rule as affiliate commission.
               order.agentFee != null && order.agentFee > 0 ? "pending" : "none",
+              order.discountCode ?? null,
+              order.discountAmount ?? null,
             ],
           );
 

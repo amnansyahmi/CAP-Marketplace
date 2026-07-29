@@ -115,6 +115,38 @@ ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_stock_state_check;
 ALTER TABLE orders ADD CONSTRAINT orders_stock_state_check
   CHECK (stock_state IN ('none','reserved','committed','released','returned'));
 
+-- Discount codes.
+--
+-- "value" means different things per kind: a fraction for 'percent' (0.1000 =
+-- 10%) and ringgit for 'fixed'. Kept in one column rather than two nullable
+-- ones so a code cannot be half of each.
+CREATE TABLE IF NOT EXISTS discount_codes (
+  id              uuid PRIMARY KEY,
+  code            text NOT NULL UNIQUE CHECK (code = upper(code) AND length(code) BETWEEN 3 AND 24),
+  kind            text NOT NULL CHECK (kind IN ('percent','fixed')),
+  value           numeric(10,4) NOT NULL CHECK (value > 0),
+  -- Minimum goods subtotal before the code applies at all.
+  min_subtotal    numeric(10,2) NOT NULL DEFAULT 0 CHECK (min_subtotal >= 0),
+  -- NULL means unlimited. The counter is incremented atomically, so the limit
+  -- cannot be beaten by two people redeeming at the same moment.
+  max_redemptions integer CHECK (max_redemptions IS NULL OR max_redemptions > 0),
+  redeemed        integer NOT NULL DEFAULT 0 CHECK (redeemed >= 0),
+  starts_at       timestamptz,
+  expires_at      timestamptz,
+  active          boolean NOT NULL DEFAULT true,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+-- Snapshotted onto the order like commission is: editing a code later must not
+-- rewrite what an old order was actually charged.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_code text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount numeric(10,2) CHECK (discount_amount >= 0);
+-- Whether this order has already given its redemption back, so a failed and
+-- then cancelled order cannot free up two.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_released boolean NOT NULL DEFAULT false;
+
+CREATE INDEX IF NOT EXISTS orders_discount_code_idx ON orders (discount_code);
+
 -- Refunds are orthogonal to payment, like fulfilment is.
 --
 -- The order was paid — that happened, and rewriting the status to hide it would

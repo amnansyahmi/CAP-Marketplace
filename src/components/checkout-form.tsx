@@ -72,8 +72,47 @@ export function CheckoutForm() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const shipping = useMemo(() => quoteShipping(subtotal, values.state || null), [subtotal, values.state]);
-  const total = round(subtotal + (shipping?.fee ?? 0));
+  // Applied here only so the customer sees the right figure; the order API
+  // redeems and recomputes it, and its answer is the one that counts.
+  const [discount, setDiscount] = useState<{ code: string; amount: number } | null>(null);
+  const [discountInput, setDiscountInput] = useState("");
+  const [discountError, setDiscountError] = useState<string | null>(null);
+  const [checkingDiscount, setCheckingDiscount] = useState(false);
+
+  const discountedSubtotal = round(subtotal - (discount?.amount ?? 0));
+  const shipping = useMemo(
+    () => quoteShipping(discountedSubtotal, values.state || null),
+    [discountedSubtotal, values.state],
+  );
+  const total = round(discountedSubtotal + (shipping?.fee ?? 0));
+
+  async function applyDiscount() {
+    const code = discountInput.trim();
+    if (!code) return;
+    setCheckingDiscount(true);
+    setDiscountError(null);
+    try {
+      const response = await fetch("/api/discount", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          code,
+          items: lines.map((l) => ({ productId: l.product.id, quantity: l.quantity })),
+        }),
+      });
+      const data = await response.json();
+      if (data.ok) {
+        setDiscount({ code: data.code, amount: data.amount });
+      } else {
+        setDiscount(null);
+        setDiscountError(data.reason ?? "That code is not valid.");
+      }
+    } catch {
+      setDiscountError("We could not check that code. Please try again.");
+    } finally {
+      setCheckingDiscount(false);
+    }
+  }
 
   const set = (key: keyof Values) => (value: string) => {
     setValues((v) => ({ ...v, [key]: value }));
@@ -87,6 +126,8 @@ export function CheckoutForm() {
     const payload = {
       ...values,
       items: lines.map((l) => ({ productId: l.product.id, quantity: l.quantity })),
+      // Only sent once applied, so a half-typed code cannot fail the order.
+      ...(discount ? { discountCode: discount.code } : {}),
     };
 
     const nextErrors = validateCheckout(payload);
@@ -106,6 +147,12 @@ export function CheckoutForm() {
       const data = await response.json();
 
       if (!response.ok) {
+        if (data.errors?.discountCode) {
+          // The code stopped being valid between applying it and paying —
+          // used up, or expired. Drop it so the total is honest again.
+          setDiscount(null);
+          setDiscountError(data.errors.discountCode);
+        }
         if (data.errors) {
           setErrors(data.errors);
           focusFirstError(data.errors);
@@ -292,12 +339,67 @@ export function CheckoutForm() {
                 )}
               </dd>
             </div>
+            {discount && (
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">
+                  Discount <span className="font-mono text-xs">{discount.code}</span>
+                </dt>
+                <dd className="text-primary">−{money(discount.amount)}</dd>
+              </div>
+            )}
             {shipping?.amountToFree != null && (
               <p className="text-xs leading-5 text-muted-foreground">
                 {`Spend ${money(shipping.amountToFree)} more for free delivery to ${shipping.zoneLabel}.`}
               </p>
             )}
           </dl>
+
+          <Separator className="my-6" />
+
+          <div>
+            <Label htmlFor="discountCode" className="mb-2">
+              Discount code
+            </Label>
+            <div className="flex gap-2">
+              <Input
+                id="discountCode"
+                name="discountCode"
+                value={discountInput}
+                autoCapitalize="characters"
+                spellCheck={false}
+                className="font-mono uppercase"
+                onChange={(e) => setDiscountInput(e.target.value)}
+                // Enter inside the checkout form would submit the order rather
+                // than apply the code, which is not what anyone means here.
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void applyDiscount();
+                  }
+                }}
+                aria-invalid={!!discountError}
+                aria-describedby={discountError ? "discount-error" : undefined}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void applyDiscount()}
+                disabled={checkingDiscount || !discountInput.trim()}
+              >
+                {checkingDiscount ? "Checking…" : "Apply"}
+              </Button>
+            </div>
+            {discountError && (
+              <p id="discount-error" role="alert" className="mt-2 text-xs text-destructive">
+                {discountError}
+              </p>
+            )}
+            {discount && (
+              <p className="mt-2 text-xs text-primary">
+                {discount.code} applied — {money(discount.amount)} off.
+              </p>
+            )}
+          </div>
 
           <Separator className="my-6" />
 
