@@ -194,3 +194,45 @@ export function orderShippedEmail(order: Order) {
 
   return { subject: `Order ${order.reference} has shipped — Chef Ammar`, text, html };
 }
+
+export function orderRefundedEmail(order: Order) {
+  const link = orderUrl(order.reference);
+  const amount = money(order.refundAmount ?? order.total);
+
+  const text = [
+    `Hi ${firstName(order.customer.fullName)},`,
+    "",
+    `We have refunded ${amount} for order ${order.reference}.`,
+    "",
+    ...(order.refundReason ? [order.refundReason, ""] : []),
+    // Named rather than vague: "a few days" invites a chase, and the delay is
+    // the bank's, not ours.
+    "Depending on your bank, it can take up to 7 working days to appear on your statement.",
+    "",
+    `See your order: ${link}`,
+    "",
+    "Chef Ammar",
+  ].join("\n");
+
+  const html = shell(
+    "Your refund is on its way.",
+    `<p style="margin:0 0 20px;font-size:16px;line-height:1.7;">
+       ${escape(firstName(order.customer.fullName))}, we have refunded
+       <strong>${amount}</strong> for order ${escape(order.reference)}.
+     </p>
+     ${
+       order.refundReason
+         ? `<p style="margin:0 0 20px;font-family:Arial,sans-serif;font-size:14px;line-height:1.7;">
+              ${escape(order.refundReason)}
+            </p>`
+         : ""
+     }
+     <table style="width:100%;border-collapse:collapse;font-size:15px;">${itemRows(order)}</table>
+     <p style="margin:24px 0 0;font-family:Arial,sans-serif;font-size:13px;line-height:1.7;color:#5f5a50;">
+       Depending on your bank, it can take up to 7 working days to appear on your statement.
+     </p>`,
+    { label: "See your order", href: link },
+  );
+
+  return { subject: `Refund for order ${order.reference} — Chef Ammar`, text, html };
+}

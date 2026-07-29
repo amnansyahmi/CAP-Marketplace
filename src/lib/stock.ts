@@ -199,6 +199,42 @@ export async function releaseReservation(orderId: string): Promise<boolean> {
   return moveReservation(orderId, "released");
 }
 
+/**
+ * Puts a refunded order's jars back on the shelf.
+ *
+ * Guarded on the order having actually sold its stock, so refunding twice —
+ * or refunding something that never shipped — cannot invent inventory.
+ */
+export async function returnStock(orderId: string): Promise<boolean> {
+  const db = await getDb();
+
+  return db.transaction(async (tx) => {
+    const claimed = await tx.query<{ id: string }>(
+      `UPDATE orders SET stock_state = 'returned'
+        WHERE id = $1 AND stock_state = 'committed'
+        RETURNING id`,
+      [orderId],
+    );
+    if (claimed.rows.length === 0) return false;
+
+    const items = await tx.query<{ product_id: string; quantity: number | string }>(
+      `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
+      [orderId],
+    );
+
+    for (const item of items.rows) {
+      await tx.query(
+        `UPDATE product_stock
+            SET on_hand = on_hand + $2, updated_at = now()
+          WHERE product_id = $1 AND tracked = true`,
+        [item.product_id, Number(item.quantity)],
+      );
+    }
+
+    return true;
+  });
+}
+
 async function moveReservation(orderId: string, next: "committed" | "released"): Promise<boolean> {
   const db = await getDb();
 

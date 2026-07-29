@@ -106,14 +106,24 @@ CREATE TABLE IF NOT EXISTS product_stock (
 -- reservation back twice and invent inventory that does not exist.
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_state text NOT NULL DEFAULT 'none';
 
-DO $$
-BEGIN
-  ALTER TABLE orders ADD CONSTRAINT orders_stock_state_check
-    CHECK (stock_state IN ('none','reserved','committed','released'));
-EXCEPTION
-  WHEN duplicate_object THEN NULL;
-END
-$$;
+-- Dropped and recreated rather than added-if-missing. The "EXCEPTION WHEN
+-- duplicate_object" pattern used elsewhere silently keeps whatever constraint
+-- already exists, so *widening* one never reaches a database that has been
+-- running — which is how 'returned' was rejected in a live shop while a
+-- freshly created test database accepted it happily.
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_stock_state_check;
+ALTER TABLE orders ADD CONSTRAINT orders_stock_state_check
+  CHECK (stock_state IN ('none','reserved','committed','released','returned'));
+
+-- Refunds are orthogonal to payment, like fulfilment is.
+--
+-- The order was paid — that happened, and rewriting the status to hide it would
+-- lose the fact. A refund is a second, later event recorded alongside it, so
+-- revenue is "paid minus refunded" rather than a status that has to be
+-- reinterpreted everywhere a sale is counted.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS refunded_at timestamptz;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_amount numeric(10,2) CHECK (refund_amount >= 0);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_reason text;
 
 -- One row per message we have decided to send about an order.
 --

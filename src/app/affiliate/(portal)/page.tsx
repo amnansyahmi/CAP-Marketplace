@@ -118,10 +118,14 @@ export default async function AffiliateDashboard({
                         {percent(sale.commissionRate)}
                       </td>
                       <td className="px-4 py-3 font-semibold tabular-nums">
-                        {sale.status === "paid" ? money(sale.commission) : "—"}
+                        {sale.status === "paid" && !sale.refunded ? money(sale.commission) : "—"}
                       </td>
                       <td className="px-4 py-3">
-                        <CommissionBadge status={sale.status} commission={sale.commissionStatus} />
+                        <CommissionBadge
+                          status={sale.status}
+                          commission={sale.commissionStatus}
+                          refunded={sale.refunded}
+                        />
                       </td>
                     </tr>
                   ))}
@@ -196,7 +200,18 @@ function Stat({
  * earned, whatever the commission column says, and showing "pending payout"
  * next to an order that failed would promise money nobody owes.
  */
-function CommissionBadge({ status, commission }: { status: string; commission: string }) {
+function CommissionBadge({
+  status,
+  commission,
+  refunded,
+}: {
+  status: string;
+  commission: string;
+  refunded: boolean;
+}) {
+  // A refund undoes the sale, so it is shown ahead of anything else — the
+  // affiliate needs to know why the commission disappeared.
+  if (refunded) return <Badge className="text-muted-foreground">Refunded</Badge>;
   if (status === "failed" || status === "cancelled") {
     return <Badge className="text-muted-foreground">Not completed</Badge>;
   }

@@ -9,8 +9,8 @@ import { endSession, isAdmin, requireAdmin, startSession } from "@/lib/admin/ses
 import { FULFILMENT_STEPS, orderStore, type Fulfilment, type OrderStatus } from "@/lib/orders";
 import { affiliateStore, normaliseCode } from "@/lib/affiliates";
 import { passwordProblem } from "@/lib/affiliate/password-rules";
-import { notifyOrderShipped } from "@/lib/notifications/order-events";
-import { setStock } from "@/lib/stock";
+import { notifyOrderRefunded, notifyOrderShipped } from "@/lib/notifications/order-events";
+import { releaseReservation, returnStock, setStock } from "@/lib/stock";
 
 /** Best-effort client identity for throttling. */
 async function clientKey(): Promise<string> {
@@ -83,9 +83,64 @@ export async function updateStatus(formData: FormData) {
   if (!id || status !== "cancelled") return;
 
   const updated = await orderStore.setStatus(id, status);
+  // A cancelled order was never paid, so its jars go straight back on the
+  // shelf rather than sitting reserved for a sale that will not happen.
+  if (updated) await releaseReservation(updated.id);
+
   revalidatePath("/admin");
   revalidatePath("/admin/orders");
+  revalidatePath("/admin/stock");
   if (updated) revalidatePath(`/admin/orders/${updated.reference}`);
+}
+
+/**
+ * Refunds a paid order.
+ *
+ * Records the refund and unwinds everything that hung off the sale: commission
+ * and the agent fee are voided, stock goes back, and the customer is told.
+ *
+ * It does **not** move money. CHIP is where the payment lives, so the actual
+ * refund is issued there; this records that it happened so the shop's own
+ * figures stop counting it as income.
+ */
+export async function refundOrder(
+  _prev: { error?: string; ok?: string } | undefined,
+  formData: FormData,
+): Promise<{ error?: string; ok?: string }> {
+  await requireAdmin();
+
+  const id = String(formData.get("orderId") ?? "");
+  const reason = String(formData.get("reason") ?? "");
+  if (!id) return { error: "Missing order." };
+
+  const refunded = await orderStore.refund(id, reason);
+  if (!refunded) {
+    return { error: "That order cannot be refunded — it was never paid, or it already has been." };
+  }
+
+  // The refund is already committed. If putting stock back fails, that is a
+  // stock-count problem to fix by hand — it must not stop the customer being
+  // told they have been refunded.
+  let stockNote = "";
+  try {
+    await returnStock(refunded.id);
+  } catch (error) {
+    console.error(`Refund ${refunded.reference}: stock could not be returned`, error);
+    stockNote = " Stock could not be put back automatically — check /admin/stock.";
+  }
+  await notifyOrderRefunded(refunded);
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/orders");
+  revalidatePath("/admin/stock");
+  revalidatePath("/admin/affiliates");
+  revalidatePath(`/admin/orders/${refunded.reference}`);
+
+  return {
+    ok:
+      `Refund of RM ${refunded.refundAmount?.toFixed(2)} recorded. ` +
+      `Issue the money in CHIP if you have not already.${stockNote}`,
+  };
 }
 
 /** Used by the layout to decide between the app shell and a redirect. */

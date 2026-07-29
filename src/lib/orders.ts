@@ -64,6 +64,10 @@ export type Order = {
   paymentUrl?: string;
   createdAt: string;
   paidAt?: string;
+  /** Set once the shop has refunded the order. Payment and refund are separate facts. */
+  refundedAt?: string;
+  refundAmount?: number;
+  refundReason?: string;
   fulfilment: Fulfilment;
   trackingNumber?: string;
   fulfilmentUpdatedAt?: string;
@@ -116,6 +120,14 @@ export interface OrderStore {
   // --- admin ---------------------------------------------------------------
   list(filter?: OrderFilter): Promise<{ orders: Order[]; total: number }>;
   stats(): Promise<OrderStats>;
+  /**
+   * Refunds a paid order.
+   *
+   * Voids commission and the agent fee in the same write, so the shop never
+   * pays out on money it gave back. Returns undefined when refused — an order
+   * that was never paid, or one already refunded.
+   */
+  refund(id: string, reason?: string): Promise<Order | undefined>;
   /** Only a paid order can be fulfilled. Returns undefined when refused. */
   setFulfilment(
     id: string,
@@ -134,8 +146,10 @@ export type OrderFilter = {
 };
 
 export type OrderStats = {
-  /** Revenue from settled orders only. */
+  /** Settled orders, net of anything refunded. */
   revenue: number;
+  /** Money given back to customers. */
+  refunded: number;
   paidCount: number;
   pendingCount: number;
   failedCount: number;
@@ -209,6 +223,9 @@ type OrderRow = {
   payment_url: string | null;
   created_at: Date | string;
   paid_at: Date | string | null;
+  refunded_at: Date | string | null;
+  refund_amount: string | null;
+  refund_reason: string | null;
 };
 
 type ItemRow = {
@@ -260,6 +277,9 @@ function rowToOrder(row: OrderRow, items: ItemRow[]): Order {
     paymentUrl: row.payment_url ?? undefined,
     createdAt: iso(row.created_at),
     paidAt: row.paid_at ? iso(row.paid_at) : undefined,
+    refundedAt: row.refunded_at ? iso(row.refunded_at) : undefined,
+    refundAmount: row.refund_amount != null ? Number(row.refund_amount) : undefined,
+    refundReason: row.refund_reason ?? undefined,
     fulfilment: row.fulfilment,
     trackingNumber: row.tracking_number ?? undefined,
     fulfilmentUpdatedAt: row.fulfilment_updated_at ? iso(row.fulfilment_updated_at) : undefined,
@@ -491,9 +511,11 @@ class PostgresOrderStore implements OrderStore {
 
   async stats(): Promise<OrderStats> {
     const db = await getDb();
-    // Revenue counts settled orders only — an unpaid order is not income.
+    // Revenue counts settled orders only — an unpaid order is not income — and
+    // nets off refunds, because money given back was never earned.
     const rows = await db.query<{
-      revenue: string;
+      gross: string;
+      refunded: string;
       paid: string;
       pending: string;
       failed: string;
@@ -501,7 +523,8 @@ class PostgresOrderStore implements OrderStore {
       agent_owed: string;
     }>(
       `SELECT
-         COALESCE(SUM(total) FILTER (WHERE status = 'paid'), 0)::text AS revenue,
+         COALESCE(SUM(total) FILTER (WHERE status = 'paid'), 0)::text AS gross,
+         COALESCE(SUM(refund_amount) FILTER (WHERE refunded_at IS NOT NULL), 0)::text AS refunded,
          count(*) FILTER (WHERE status = 'paid')::text            AS paid,
          count(*) FILTER (WHERE status = 'pending_payment')::text  AS pending,
          count(*) FILTER (WHERE status = 'failed')::text           AS failed,
@@ -513,14 +536,40 @@ class PostgresOrderStore implements OrderStore {
        FROM orders`,
     );
     const r = rows.rows[0];
+    const refunded = amount(r?.refunded ?? "0");
     return {
-      revenue: amount(r?.revenue ?? "0"),
+      revenue: amount(String(amount(r?.gross ?? "0") - refunded)),
+      refunded,
       paidCount: Number(r?.paid ?? 0),
       pendingCount: Number(r?.pending ?? 0),
       failedCount: Number(r?.failed ?? 0),
       awaitingFulfilment: Number(r?.awaiting ?? 0),
       agentFeesOwed: amount(r?.agent_owed ?? "0"),
     };
+  }
+
+  async refund(id: string, reason?: string) {
+    const db = await getDb();
+    // Everything in one UPDATE, guarded on the order being paid and not
+    // already refunded. Voiding commission separately would leave a window
+    // where the shop had given the money back but still owed a percentage of
+    // it — and a second click would refund twice.
+    const rows = await db.query<OrderRow>(
+      `UPDATE orders
+          SET refunded_at   = now(),
+              refund_amount = total,
+              refund_reason = $2,
+              -- Commission that was only pending is cancelled outright. One
+              -- already paid out is left alone: that money has left the
+              -- building, and pretending otherwise would make the affiliate's
+              -- own figures disagree with what they were sent.
+              commission_status = CASE WHEN commission_status = 'pending' THEN 'void' ELSE commission_status END,
+              agent_fee_status  = CASE WHEN agent_fee_status  = 'pending' THEN 'void' ELSE agent_fee_status  END
+        WHERE id = $1 AND status = 'paid' AND refunded_at IS NULL
+       RETURNING *`,
+      [id, reason?.trim() || null],
+    );
+    return this.hydrate(rows.rows);
   }
 
   async setFulfilment(id: string, fulfilment: Fulfilment, trackingNumber?: string | null) {

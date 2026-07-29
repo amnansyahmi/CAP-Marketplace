@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 
 import { updateFulfilment, updateStatus } from "@/app/admin/actions";
 import { FulfilmentBadge, StatusBadge, formatDate } from "@/components/admin/order-table";
+import { RefundForm } from "@/app/admin/(dashboard)/orders/[reference]/refund-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -192,6 +193,32 @@ export default async function AdminOrderPage({
               </>
             )}
           </section>
+
+          {order.status === "paid" && (
+            <section className="rounded-lg border border-border bg-card p-6">
+              <h2 className="eyebrow">{order.refundedAt ? "Refunded" : "Refund"}</h2>
+              {order.refundedAt ? (
+                <dl className="mt-4 space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <dt className="text-muted-foreground">Amount</dt>
+                    <dd className="font-semibold">{money(order.refundAmount ?? order.total)}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt className="text-muted-foreground">When</dt>
+                    <dd>{formatDate(order.refundedAt)}</dd>
+                  </div>
+                  {order.refundReason && (
+                    <div className="pt-1">
+                      <dt className="text-muted-foreground">Reason</dt>
+                      <dd className="mt-1">{order.refundReason}</dd>
+                    </div>
+                  )}
+                </dl>
+              ) : (
+                <RefundForm orderId={order.id} amount={money(order.total)} />
+              )}
+            </section>
+          )}
 
           <section className="rounded-lg border border-border bg-card p-6">
             <h2 className="eyebrow">Emails</h2>

@@ -41,6 +41,9 @@ export type Sale = {
   items: SaleLine[];
   /** Delivery destination state — affects the shipping figure. */
   state: string;
+  /** When the shop refunded this order. Null when it stands. */
+  refundedAt: string | null;
+  refundAmount: number | null;
   agent: { name: string | null; fee: number; status: AgentFeeStatus } | null;
   affiliate: { code: string; commission: number; status: CommissionStatus } | null;
 };
@@ -87,6 +90,8 @@ type SaleRow = {
   affiliate_code: string | null;
   commission_amount: string | null;
   commission_status: CommissionStatus;
+  refunded_at: Date | string | null;
+  refund_amount: string | null;
 };
 
 type LineRow = {
@@ -164,7 +169,8 @@ export async function listSales(query: SalesQuery) {
     `SELECT id, reference, status, fulfilment, address_state, subtotal, shipping, total,
             currency, created_at, paid_at,
             agent_name, agent_fee, agent_fee_status,
-            affiliate_code, commission_amount, commission_status
+            affiliate_code, commission_amount, commission_status,
+            refunded_at, refund_amount
        FROM orders ${clause}
       ORDER BY created_at DESC, id DESC
       LIMIT $${params.length + 1}`,
@@ -210,6 +216,11 @@ export async function listSales(query: SalesQuery) {
       total: num(row.total),
       units: items.reduce((sum, i) => sum + i.quantity, 0),
       items,
+      // The dashboard reconciles fees against sales, so a refunded order has
+      // to be visible as such — otherwise it keeps counting income the shop
+      // gave back, and an agent fee that was voided.
+      refundedAt: row.refunded_at ? iso(row.refunded_at) : null,
+      refundAmount: row.refund_amount != null ? num(row.refund_amount) : null,
       state: row.address_state,
       agent: row.agent_fee === null
         ? null

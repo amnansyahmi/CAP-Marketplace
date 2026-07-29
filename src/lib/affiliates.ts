@@ -219,9 +219,15 @@ class PostgresAffiliateStore implements AffiliateStore {
       owed: string;
       paid: string;
     }>(
+      // Refunded orders are excluded from the count and the subtotal, matching
+      // the affiliate's own portal exactly. Two views of one relationship that
+      // disagree about how many sales someone made is worse than either
+      // number being wrong on its own.
       `SELECT affiliate_id,
-              count(*) FILTER (WHERE status = 'paid')::text AS order_count,
-              COALESCE(SUM(subtotal) FILTER (WHERE status = 'paid'), 0)::text AS sales_subtotal,
+              count(*) FILTER (WHERE status = 'paid' AND refunded_at IS NULL)::text AS order_count,
+              COALESCE(SUM(subtotal) FILTER (
+                WHERE status = 'paid' AND refunded_at IS NULL
+              ), 0)::text AS sales_subtotal,
               -- "Owed" must mean earned, so this matches payOut exactly:
               -- commission is pending AND the order was actually paid. Filtering
               -- on commission_status alone would show commission on orders that

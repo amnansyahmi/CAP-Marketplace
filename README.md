@@ -224,6 +224,39 @@ re-checks and reserves server-side, so a stale or edited answer cannot oversell
 anything; a request for more than is available comes back `409` naming the item
 that ran out.
 
+## Refunds and cancellations
+
+An unpaid order can be cancelled from the admin, which puts its reserved stock
+straight back. A paid order can be refunded, which unwinds everything that hung
+off the sale.
+
+**A refund is recorded alongside the payment, not instead of it.** The order
+*was* paid — rewriting the status to hide that would lose the fact and break
+every query that counts a sale. So `refunded_at` sits next to `paid_at`, the way
+fulfilment sits next to payment, and revenue is "paid minus refunded".
+
+Refunding one order does all of this in a single guarded UPDATE:
+
+- **Commission still pending is voided.** The shop gave the money back; it does
+  not also owe a percentage of it.
+- **Commission already paid out is left alone.** That money has left the
+  building, and pretending otherwise would make the affiliate's figures disagree
+  with what they were actually sent.
+- **The agent fee is voided** on the same terms.
+- **Stock goes back** on the shelf, once.
+- **The customer is emailed**, with the reason if one was given.
+
+The guard is `WHERE status = 'paid' AND refunded_at IS NULL`, so two clicks
+cannot refund twice or void commission twice.
+
+**It does not move money.** CHIP holds the payment, so the actual refund is
+issued there; this records that it happened so the shop's own figures stop
+counting it as income. The admin says so on the button.
+
+Refunded orders are excluded from an affiliate's sales figures in *both* the
+admin and their own portal, and the partner feed carries `refundedAt` so the
+central dashboard stops counting a sale it already reported.
+
 ## Emails
 
 The shop sends two messages: a confirmation when an order is paid, and a
