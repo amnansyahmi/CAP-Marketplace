@@ -11,7 +11,7 @@
  * go through `setStatus`, which enforces the rule inside the UPDATE.
  */
 
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 import { getDb } from "@/lib/db/client";
 import type { CommissionStatus } from "@/lib/affiliates";
@@ -145,11 +145,30 @@ export type OrderStats = {
   agentFeesOwed: number;
 };
 
-/** e.g. CA-7F3K9Q — short enough to read down the phone. */
+/**
+ * e.g. CA-7F3K9Q — short enough to read down the phone.
+ *
+ * Drawn from `randomBytes`, not `Math.random()`. V8's generator is a fast
+ * non-cryptographic PRNG whose internal state can be recovered from a handful
+ * of outputs, which would make references *predictable* rather than merely
+ * hard to guess — and a reference is one of the two things that opens an
+ * order's page.
+ *
+ * Rejection sampling keeps the alphabet uniform: taking `byte % 34` would make
+ * the first fourteen characters slightly likelier than the rest, throwing away
+ * entropy in a value whose whole job is to be unguessable.
+ */
 export function newOrderReference() {
   const alphabet = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // no I/O, to avoid misreads
+  const limit = 256 - (256 % alphabet.length);
   let out = "";
-  for (let i = 0; i < 6; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  while (out.length < 6) {
+    for (const byte of randomBytes(12)) {
+      if (byte >= limit) continue; // would bias the distribution
+      out += alphabet[byte % alphabet.length];
+      if (out.length === 6) break;
+    }
+  }
   return `CA-${out}`;
 }
 

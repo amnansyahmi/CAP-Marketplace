@@ -6,6 +6,8 @@ import { agentConfig, agentFeeFor, totalUnits } from "@/lib/agent";
 import { REFERRAL_COOKIE } from "@/middleware";
 import { createPurchase } from "@/lib/chip";
 import { hasErrors, validateCheckout, type CheckoutInput } from "@/lib/checkout-schema";
+import { notifyOrderPaid } from "@/lib/notifications/order-events";
+import { ORDER_COOKIE, addToOrderCookie, issueOrderToken } from "@/lib/order-access";
 import { orderStore, type NewOrder, type OrderItem } from "@/lib/orders";
 import { productById } from "@/lib/products";
 import { quoteShipping, round } from "@/lib/shipping";
@@ -63,7 +65,8 @@ export async function POST(request: Request) {
   // editing the cookie cannot invent a commission or pick a different rate.
   // Commission is taken on the subtotal, never the total — delivery is a
   // pass-through cost, not margin.
-  const claimedCode = (await cookies()).get(REFERRAL_COOKIE)?.value;
+  const jar = await cookies();
+  const claimedCode = jar.get(REFERRAL_COOKIE)?.value;
   const affiliate = claimedCode ? await affiliateStore.activeByCode(claimedCode) : undefined;
   const attribution = affiliate
     ? {
@@ -108,14 +111,18 @@ export async function POST(request: Request) {
   const order = await orderStore.create(draft);
 
   const origin = baseUrl(request);
+  // Carried on the gateway return links too: the customer may well come back
+  // from CHIP in a different tab or app, where only the URL travels with them.
+  const token = issueOrderToken(order.reference);
+  const query = token ? `?t=${token}` : "";
   try {
     const purchase = await createPurchase(order, {
-      successUrl: `${origin}/orders/${order.reference}`,
-      failureUrl: `${origin}/orders/${order.reference}?payment=failed`,
+      successUrl: `${origin}/orders/${order.reference}${query}`,
+      failureUrl: `${origin}/orders/${order.reference}${query}${query ? "&" : "?"}payment=failed`,
       callbackUrl: `${origin}/api/webhooks/chip`,
     });
 
-    await orderStore.attachPayment(order.id, {
+    const settled = await orderStore.attachPayment(order.id, {
       paymentId: purchase.paymentId,
       paymentUrl: purchase.checkoutUrl,
       // Without a live gateway there is no webhook to confirm payment, so the
@@ -123,11 +130,28 @@ export async function POST(request: Request) {
       markPaid: !purchase.live,
     });
 
-    return NextResponse.json({
+    // With a live gateway the confirmation is sent from the webhook instead,
+    // once CHIP says the money actually arrived.
+    if (settled?.status === "paid") await notifyOrderPaid(settled);
+
+    const response = NextResponse.json({
       reference: order.reference,
+      accessToken: token,
       checkoutUrl: purchase.checkoutUrl,
       simulated: !purchase.live,
     });
+
+    // Lets this browser reopen its own orders later without the emailed link.
+    // Readable by script on purpose: it is a list of references the visitor
+    // already has, not a credential — the signature is what authorises.
+    response.cookies.set(ORDER_COOKIE, addToOrderCookie(jar.get(ORDER_COOKIE)?.value, order.reference), {
+      maxAge: 180 * 24 * 60 * 60,
+      sameSite: "lax",
+      path: "/",
+      httpOnly: false,
+      secure: process.env.NODE_ENV === "production",
+    });
+    return response;
   } catch (error) {
     await orderStore.setStatus(order.id, "failed");
     console.error("Failed to create CHIP purchase", error);

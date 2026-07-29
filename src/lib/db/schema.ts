@@ -83,6 +83,27 @@ CREATE TABLE IF NOT EXISTS affiliates (
   created_at      timestamptz NOT NULL DEFAULT now()
 );
 
+-- One row per message we have decided to send about an order.
+--
+-- The primary key is the claim: a sender inserts before sending, and a second
+-- attempt for the same (order, kind) hits the conflict and does nothing. That
+-- is what stops a retried payment webhook sending two confirmations, and it
+-- holds across restarts and across instances in a way an in-memory guard
+-- could not.
+CREATE TABLE IF NOT EXISTS order_notifications (
+  order_id   uuid NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  kind       text NOT NULL,
+  recipient  text NOT NULL,
+  status     text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','failed')),
+  driver     text,
+  error      text,
+  claimed_at timestamptz NOT NULL DEFAULT now(),
+  sent_at    timestamptz,
+  PRIMARY KEY (order_id, kind)
+);
+
+CREATE INDEX IF NOT EXISTS order_notifications_status_idx ON order_notifications (status);
+
 -- Affiliates sign in to their own portal. Nullable because an affiliate exists
 -- before anyone gives them a password: until one is set they simply cannot sign
 -- in, which is the safe direction.

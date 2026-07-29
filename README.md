@@ -193,6 +193,71 @@ read every customer's name, phone number and delivery address.
 - A single shared password suits one shop owner. For more than one person,
   replace it with real accounts rather than sharing the secret.
 
+## Emails
+
+The shop sends two messages: a confirmation when an order is paid, and a
+shipping notice with the tracking number when it is marked shipped. Both are
+plain text *and* HTML — the text part is what a watch, a screen reader or a
+stripped-down client shows, so neither is a stub for the other.
+
+### Sending exactly once
+
+A payment gateway retries a callback it does not get a prompt answer to, and an
+admin can click a button twice. Two confirmations is an embarrassment; two
+shipping notices with different tracking numbers is a support call. So the
+decision to send is a database write, not a judgement made in JavaScript:
+
+`order_notifications` has `(order_id, kind)` as its primary key, and a sender
+claims with `INSERT ... ON CONFLICT DO NOTHING RETURNING`. Whoever wins the
+insert sends; everyone else stops. Six concurrent attempts produce exactly one
+email, and the guard holds across restarts and across instances in a way an
+in-memory check could not.
+
+**Sending never fails an order.** A payment that succeeded and an email that did
+not are two different facts. Failures are recorded against the order with the
+reason and shown in the admin, because a customer who was not told is precisely
+what the shop needs to know — an unrecorded failure is silence.
+
+### Choosing a provider
+
+| Variable | Purpose |
+| --- | --- |
+| `MAIL_DRIVER` | `resend`, `console` or `none`. Defaults to `console` |
+| `RESEND_API_KEY` | Required for the `resend` driver |
+| `MAIL_FROM` | e.g. `Chef Ammar <orders@your-domain.my>` |
+
+With nothing configured the console driver logs what *would* have been sent, and
+the order page says plainly that no email went out — a shop with broken mail
+should be able to tell that it is broken rather than quietly dropping messages.
+Resend is called over plain `fetch`; there is no SDK to keep current.
+
+## Order pages
+
+`/orders/CA-XXXXXX` shows a customer's name, phone number and home address, so
+knowing the reference is not enough to open it. Two ways in:
+
+- **the signed link** in their email (`?t=`), which names the order inside the
+  signature and so cannot be moved to a different one
+- **the browser that placed the order**, which keeps a list of its own
+  references
+
+Neither is a login — forwarding your own confirmation shares your own order,
+which is yours to share. The point is that a reference alone no longer opens
+anything. An unauthorised request gets the same 404 as a reference that does not
+exist, so the page cannot be used to test which references are real.
+
+References are drawn from `randomBytes` with rejection sampling, not
+`Math.random()`. V8's generator is a fast non-cryptographic PRNG whose state can
+be recovered from a handful of outputs, which would make references predictable
+rather than merely hard to guess.
+
+| Variable | Purpose |
+| --- | --- |
+| `ORDER_ACCESS_SECRET` | Signs the order links — `openssl rand -base64 32` |
+
+Unset, tokens are refused and only the buyer's own browser can open the page: a
+missing secret must never mean "let everybody in".
+
 ## Affiliates
 
 Affiliates refer customers with a link carrying their code
@@ -392,6 +457,9 @@ Set these in **Project → Settings → Environment Variables**, then redeploy.
 | `ADMIN_SESSION_SECRET` | to use `/admin` | `openssl rand -base64 32` |
 | `ADMIN_DEMO_MODE` | never, for a real shop | `1` opens `/admin` with no sign-in |
 | `AFFILIATE_SESSION_SECRET` | to use `/affiliate` | `openssl rand -base64 32` |
+| `ORDER_ACCESS_SECRET` | to email order links | `openssl rand -base64 32` |
+| `RESEND_API_KEY` | to send real email | Otherwise mail is logged, not sent |
+| `MAIL_FROM` | to send real email | `Chef Ammar <orders@your-domain.my>` |
 | `PARTNER_API_KEY` | for the dashboard | Min 24 characters |
 | `AGENT_FEE_PER_SALE` | no | Defaults to `2` |
 | `AGENT_FEE_BASIS` | no | `order` (default) or `unit` |

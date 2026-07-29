@@ -117,7 +117,8 @@ export function CheckoutForm() {
       // The bag has become an order — clear it before leaving so a back
       // navigation doesn't offer to buy the same jars twice.
       clear();
-      if (data.simulated) router.push(`/orders/${data.reference}`);
+      const query = data.accessToken ? `?t=${data.accessToken}` : "";
+      if (data.simulated) router.push(`/orders/${data.reference}${query}`);
       else window.location.href = data.checkoutUrl;
     } catch {
       setFormError("We could not reach the payment service. Please try again.");

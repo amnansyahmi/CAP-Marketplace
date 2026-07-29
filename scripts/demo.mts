@@ -75,6 +75,7 @@ const wanted: Record<string, string> = {
   ADMIN_PASSWORD: DEMO_ADMIN_PASSWORD,
   ADMIN_SESSION_SECRET: secret(),
   AFFILIATE_SESSION_SECRET: secret(),
+  ORDER_ACCESS_SECRET: secret(),
   PARTNER_API_KEY: secret(),
   AGENT_NAME: "KretivWork",
   AGENT_FEE_PER_SALE: "2",

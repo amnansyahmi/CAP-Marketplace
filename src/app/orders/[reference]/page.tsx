@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
@@ -8,6 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { chipConfig } from "@/lib/chip";
+import { getMailer } from "@/lib/notifications/mailer";
+import { ORDER_COOKIE, cookiePlacedThisOrder, verifyOrderToken } from "@/lib/order-access";
 import { orderStore, type OrderStatus } from "@/lib/orders";
 import { money } from "@/lib/utils";
 
@@ -39,17 +42,29 @@ export default async function OrderPage({
   searchParams,
 }: {
   params: Promise<{ reference: string }>;
-  searchParams: Promise<{ payment?: string }>;
+  searchParams: Promise<{ payment?: string; t?: string }>;
 }) {
   const { reference } = await params;
-  const { payment } = await searchParams;
+  const { payment, t } = await searchParams;
   const order = await orderStore.byReference(reference);
   if (!order) notFound();
+
+  // Knowing the reference is not enough: this page carries a home address and
+  // a phone number. Either the signed link we emailed, or the browser that
+  // placed the order.
+  const jar = await cookies();
+  const permitted =
+    verifyOrderToken(order.reference, t) ||
+    cookiePlacedThisOrder(jar.get(ORDER_COOKIE)?.value, order.reference);
+  // Same response as a reference that does not exist, so this page cannot be
+  // used to confirm which references are real.
+  if (!permitted) notFound();
 
   // A `?payment=failed` return from the gateway wins over a still-pending record.
   const status: OrderStatus = payment === "failed" && order.status === "pending_payment" ? "failed" : order.status;
   const copy = STATUS_COPY[status];
   const { isLive } = chipConfig();
+  const mailDriver = getMailer().name;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -59,6 +74,15 @@ export default async function OrderPage({
         <p className="eyebrow">Order {order.reference}</p>
         <h1 className="mt-4 font-serif text-5xl leading-[1.02] tracking-[-.04em] lg:text-6xl">{copy.heading}</h1>
         <p className="mt-6 max-w-xl text-base leading-8 text-muted-foreground">{copy.body}</p>
+
+        {status === "paid" && mailDriver !== "resend" && (
+          <p className="mt-6 rounded-md border border-border bg-muted/60 p-4 text-xs leading-6 text-muted-foreground">
+            <strong className="font-semibold">No email was sent.</strong> This environment has no mail
+            provider configured, so the confirmation was written to the server console instead. Set{" "}
+            <code className="font-mono">RESEND_API_KEY</code> and <code className="font-mono">MAIL_FROM</code>{" "}
+            to send real email.
+          </p>
+        )}
 
         {status === "paid" && !isLive && (
           <p className="mt-6 rounded-md border border-border bg-muted/60 p-4 text-xs leading-6 text-muted-foreground">

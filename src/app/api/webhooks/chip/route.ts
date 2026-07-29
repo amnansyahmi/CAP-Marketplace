@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { verifyWebhookSignature } from "@/lib/chip";
+import { notifyOrderPaid } from "@/lib/notifications/order-events";
 import { orderStore, type OrderStatus } from "@/lib/orders";
 
 export const dynamic = "force-dynamic";
@@ -56,6 +57,10 @@ export async function POST(request: Request) {
     // e.g. a late failure arriving after the payment already settled.
     return NextResponse.json({ status: order.status, ignored: "terminal" });
   }
+
+  // Only reached when the UPDATE actually moved the order, so a retried
+  // callback that found it already settled never gets here.
+  await notifyOrderPaid(updated);
 
   return NextResponse.json({ status: updated.status });
 }

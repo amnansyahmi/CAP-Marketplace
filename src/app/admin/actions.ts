@@ -9,6 +9,7 @@ import { endSession, isAdmin, requireAdmin, startSession } from "@/lib/admin/ses
 import { FULFILMENT_STEPS, orderStore, type Fulfilment, type OrderStatus } from "@/lib/orders";
 import { affiliateStore, normaliseCode } from "@/lib/affiliates";
 import { passwordProblem } from "@/lib/affiliate/password-rules";
+import { notifyOrderShipped } from "@/lib/notifications/order-events";
 
 /** Best-effort client identity for throttling. */
 async function clientKey(): Promise<string> {
@@ -58,6 +59,10 @@ export async function updateFulfilment(formData: FormData) {
 
   // The store refuses to fulfil an unpaid order, so no check is needed here.
   const updated = await orderStore.setFulfilment(id, fulfilment, trackingRaw || null);
+
+  // Only when the store accepted the change, and only on the step the customer
+  // is actually waiting to hear about.
+  if (updated) await notifyOrderShipped(updated);
 
   revalidatePath("/admin");
   revalidatePath("/admin/orders");

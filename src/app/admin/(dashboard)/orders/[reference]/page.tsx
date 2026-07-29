@@ -4,10 +4,12 @@ import type { Metadata } from "next";
 
 import { updateFulfilment, updateStatus } from "@/app/admin/actions";
 import { FulfilmentBadge, StatusBadge, formatDate } from "@/components/admin/order-table";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { notificationsFor } from "@/lib/notifications/dispatch";
 import { FULFILMENT_STEPS, orderStore } from "@/lib/orders";
 import { money } from "@/lib/utils";
 
@@ -31,6 +33,7 @@ export default async function AdminOrderPage({
   const order = await orderStore.byReference(reference);
   if (!order) notFound();
 
+  const notifications = await notificationsFor(order.id);
   const canFulfil = order.status === "paid";
   const currentStep = FULFILMENT_STEPS.indexOf(order.fulfilment);
 
@@ -190,6 +193,42 @@ export default async function AdminOrderPage({
             )}
           </section>
 
+          <section className="rounded-lg border border-border bg-card p-6">
+            <h2 className="eyebrow">Emails</h2>
+            {notifications.length === 0 ? (
+              <p className="mt-4 text-sm text-muted-foreground">
+                Nothing sent yet. The confirmation goes out when the order is paid, and the shipping
+                notice when it is marked shipped.
+              </p>
+            ) : (
+              <ul className="mt-4 space-y-3 text-sm">
+                {notifications.map((note) => (
+                  <li key={note.kind} className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="block">{NOTIFICATION_LABELS[note.kind] ?? note.kind}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {note.recipient}
+                        {note.driver ? ` · via ${note.driver}` : ""}
+                      </span>
+                      {note.error && (
+                        <span className="mt-1 block text-xs text-destructive">{note.error}</span>
+                      )}
+                    </div>
+                    <Badge variant={note.status === "sent" ? "secondary" : "outline"}>{note.status}</Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {/* A failure here means a customer was not told something. Silence
+                is the worst outcome, so it is shown rather than logged away. */}
+            {notifications.some((n) => n.status === "failed") && (
+              <p className="mt-4 text-xs leading-5 text-destructive">
+                A message could not be delivered. Check the mail provider settings, then contact the
+                customer directly.
+              </p>
+            )}
+          </section>
+
           {order.agentFee != null && (
             <section className="rounded-lg border border-border bg-card p-6">
               <h2 className="eyebrow">Agent fee</h2>
@@ -259,3 +298,10 @@ export default async function AdminOrderPage({
     </div>
   );
 }
+
+/** Human names for the notification kinds recorded against an order. */
+const NOTIFICATION_LABELS: Record<string, string> = {
+  order_confirmed: "Order confirmation",
+  order_shipped: "Shipping notice",
+  order_refunded: "Refund confirmation",
+};
