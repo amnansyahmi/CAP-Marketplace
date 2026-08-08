@@ -147,6 +147,33 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_released boolean NOT NULL D
 
 CREATE INDEX IF NOT EXISTS orders_discount_code_idx ON orders (discount_code);
 
+-- The courier service the customer chose, and the shipment once booked.
+--
+-- Snapshotted like everything else involving money: the service and its quoted
+-- price are frozen onto the order, so a courier changing rates later cannot
+-- rewrite what a customer was charged.
+--
+-- "shipment_state" is the claim that stops a shipment being booked twice.
+-- Booking spends real EasyParcel credit, so two clicks must not produce two
+-- parcels and two charges.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_service_id text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_courier text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_service_name text;
+-- What the shop expects to pay the courier, as against what the customer paid.
+-- Free delivery makes the shop absorb postage; it does not make it free.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_cost numeric(10,2);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipment_state text NOT NULL DEFAULT 'none';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipment_order_number text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipment_awb_url text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipment_booked_at timestamptz;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipment_error text;
+
+-- Dropped and recreated rather than added-if-missing, so widening it later
+-- actually reaches a database that is already running.
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_shipment_state_check;
+ALTER TABLE orders ADD CONSTRAINT orders_shipment_state_check
+  CHECK (shipment_state IN ('none','booking','booked','failed'));
+
 -- Refunds are orthogonal to payment, like fulfilment is.
 --
 -- The order was paid — that happened, and rewriting the status to hide it would

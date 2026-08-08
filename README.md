@@ -193,6 +193,74 @@ read every customer's name, phone number and delivery address.
 - A single shared password suits one shop owner. For more than one person,
   replace it with real accounts rather than sharing the secret.
 
+## Delivery and couriers
+
+Two layers, and the order matters: **checkout never depends on a courier API
+being up.**
+
+- **Flat zone rates** (`src/lib/shipping.ts`) are the floor. RM 8 within
+  Semenanjung, RM 18 to Sabah/Sarawak/Labuan, free over a threshold. Always
+  available, no configuration, no network call.
+- **Live courier rates** through EasyParcel, when it is configured. One account
+  covers J&T, Pos Laju, DHL and the rest, so the shop books through a single
+  integration rather than onboarding with each courier separately.
+
+When EasyParcel is unreachable, unconfigured, or simply slow, the flat rate
+stands in and the customer sees a working shop. A postage quote is not worth
+losing a sale over.
+
+### Two prices, deliberately apart
+
+`price` is what the customer is charged; `cost` is what the shop expects to pay
+the courier. Free delivery zeroes the first and leaves the second alone —
+absorbing postage is a real cost, and folding the two together would hide it
+from the margin. The order stores both.
+
+### What is quoted
+
+Couriers price the packed box, not the product. `src/lib/parcel.ts` adds box
+tare and per-jar padding to the goods weight, picks from box sizes the shop
+actually keeps, and charges the greater of actual and volumetric weight
+(cm³/6000, the divisor every Malaysian courier uses). Quoting three 350g jars as
+1.05kg would under-buy postage on every order.
+
+Those numbers are conservative estimates, not measurements. Weigh a real packed
+box and replace them — they are in one file for exactly that reason.
+
+### Booking
+
+From the order page in the admin. Booking spends real EasyParcel credit, so
+`shipment_state` is a claim: whoever moves it `none → booking` owns the attempt,
+and a second click finds it taken. A failure returns it to `none` with the
+reason attached, because leaving it stuck at `booking` would mean a network blip
+locked an order out of ever being shipped.
+
+Only a paid, unrefunded order can be booked. Posting goods for money that never
+arrived is the one mistake a courier integration must not make easy.
+
+The consignment number fills in automatically; marking the order shipped emails
+it to the customer. `syncParcelStatuses` pulls tracking for parcels in flight
+and advances fulfilment — forward only, since tracking events arrive late and
+out of order, and a stale event must not un-deliver a parcel that arrived.
+Wording the mapper does not clearly recognise changes nothing at all.
+
+| Variable | Purpose |
+| --- | --- |
+| `EASYPARCEL_API_KEY` | Enables live rates and booking |
+| `EASYPARCEL_DEMO` | `1` to use the sandbox host |
+| `EASYPARCEL_PICKUP_POSTCODE` | Where parcels are collected — required |
+| `EASYPARCEL_PICKUP_STATE` | Required |
+| `EASYPARCEL_PICKUP_NAME` / `_PHONE` / `_ADDRESS` / `_CITY` | On the consignment note |
+
+Without a pickup postcode and state the integration stays off, because every
+rate depends on where the parcel starts and a confidently wrong quote is worse
+than no quote.
+
+> **Not yet verified against a live account.** Rate checking is built against
+> EasyParcel's published example. Order submission and payment follow the same
+> documented shape but have not been run with a real merchant key, so confirm
+> those field names before booking the first real parcel.
+
 ## Stock
 
 Off by default, and opt-in per product from `/admin/stock`. Turning stock on for

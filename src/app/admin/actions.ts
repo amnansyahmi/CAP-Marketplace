@@ -12,6 +12,8 @@ import { passwordProblem } from "@/lib/affiliate/password-rules";
 import { notifyOrderRefunded, notifyOrderShipped } from "@/lib/notifications/order-events";
 import { releaseReservation, returnStock, setStock } from "@/lib/stock";
 import { discountStore } from "@/lib/discounts";
+import { bookOrderShipment } from "@/lib/shipments";
+import { syncParcelStatuses } from "@/lib/parcel-sync";
 
 /** Best-effort client identity for throttling. */
 async function clientKey(): Promise<string> {
@@ -332,4 +334,42 @@ export async function setDiscountActive(formData: FormData) {
   if (!id) return;
   await discountStore.setActive(id, active);
   revalidatePath("/admin/discounts");
+}
+
+// --- shipping ----------------------------------------------------------------
+
+/**
+ * Books the parcel for an order with the courier.
+ *
+ * Spends real EasyParcel credit, so the claim that stops a double booking is in
+ * the database rather than in this handler — see `bookOrderShipment`.
+ */
+export async function bookShipmentAction(
+  _prev: { error?: string; ok?: string } | undefined,
+  formData: FormData,
+): Promise<{ error?: string; ok?: string }> {
+  await requireAdmin();
+
+  const orderId = String(formData.get("orderId") ?? "");
+  if (!orderId) return { error: "Missing order." };
+
+  const result = await bookOrderShipment(orderId);
+  if (!result.ok) return { error: result.reason };
+
+  revalidatePath("/admin/orders");
+  revalidatePath(`/admin/orders/${result.order.reference}`);
+
+  return {
+    ok: result.consignmentNumber
+      ? `Booked. Consignment number ${result.consignmentNumber} — mark the order shipped to email it to the customer.`
+      : "Booked. The courier has not issued a consignment number yet; it will appear once they do.",
+  };
+}
+
+/** Pulls parcel status for everything in transit and advances fulfilment. */
+export async function syncParcelsAction(): Promise<void> {
+  await requireAdmin();
+  await syncParcelStatuses();
+  revalidatePath("/admin");
+  revalidatePath("/admin/orders");
 }

@@ -3,12 +3,28 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useCart } from "@/lib/cart-context";
 import { hasErrors, validateCheckout, type FieldErrors } from "@/lib/checkout-schema";
 import { MALAYSIAN_STATES, quoteShipping, round } from "@/lib/shipping";
 import { money } from "@/lib/utils";
+
+/** What /api/shipping/rates returns. Prices only — costs stay server-side. */
+type DeliveryQuoteResponse = {
+  options: {
+    id: string;
+    courierName: string;
+    serviceName: string;
+    price: number;
+    deliveryEstimate?: string;
+    fallback: boolean;
+  }[];
+  source: "easyparcel" | "flat";
+  free: boolean;
+  amountToFree: number | null;
+  zoneLabel: string;
+};
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -80,11 +96,70 @@ export function CheckoutForm() {
   const [checkingDiscount, setCheckingDiscount] = useState(false);
 
   const discountedSubtotal = round(subtotal - (discount?.amount ?? 0));
-  const shipping = useMemo(
+
+  // Courier options for the chosen state. The flat zone rate is used until
+  // these arrive, and stays if they never do — checkout must not depend on a
+  // courier API being up.
+  const [rates, setRates] = useState<DeliveryQuoteResponse | null>(null);
+  const [ratesLoading, setRatesLoading] = useState(false);
+  const [chosenService, setChosenService] = useState<string | null>(null);
+
+  const fallbackQuote = useMemo(
     () => quoteShipping(discountedSubtotal, values.state || null),
     [discountedSubtotal, values.state],
   );
-  const total = round(discountedSubtotal + (shipping?.fee ?? 0));
+
+  const chosen =
+    rates?.options.find((option) => option.id === chosenService) ?? rates?.options[0] ?? null;
+  const shippingFee = chosen ? chosen.price : (fallbackQuote?.fee ?? 0);
+  const shipping = fallbackQuote;
+  const total = round(discountedSubtotal + shippingFee);
+
+  const bagKey = lines.map((l) => `${l.product.id}:${l.quantity}`).join(",");
+
+  useEffect(() => {
+    const state = values.state;
+    if (!state) {
+      setRates(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    setRatesLoading(true);
+
+    fetch("/api/shipping/rates", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        state,
+        postcode: values.postcode,
+        items: lines.map((l) => ({ productId: l.product.id, quantity: l.quantity })),
+      }),
+      signal: controller.signal,
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: DeliveryQuoteResponse | null) => {
+        if (!data?.options?.length) {
+          setRates(null);
+          return;
+        }
+        setRates(data);
+        // Default to the cheapest, which is what the list is sorted by.
+        setChosenService((current) =>
+          current && data.options.some((o) => o.id === current) ? current : data.options[0].id,
+        );
+      })
+      .catch(() => {
+        // Aborted or offline. Leaving `rates` null keeps the flat rate showing
+        // rather than blanking the delivery line.
+      })
+      .finally(() => setRatesLoading(false));
+
+    return () => controller.abort();
+    // Postcode is deliberately not a dependency: rates change by state and by
+    // what is in the bag, and refetching on every keystroke of a postcode
+    // would hammer the courier API for no benefit.
+  }, [values.state, bagKey, discountedSubtotal]);
 
   async function applyDiscount() {
     const code = discountInput.trim();
@@ -128,6 +203,8 @@ export function CheckoutForm() {
       items: lines.map((l) => ({ productId: l.product.id, quantity: l.quantity })),
       // Only sent once applied, so a half-typed code cannot fail the order.
       ...(discount ? { discountCode: discount.code } : {}),
+      // The id only. The server re-prices it — the browser never sends money.
+      ...(chosen?.id && chosen.id !== "flat" ? { deliveryServiceId: chosen.id } : {}),
     };
 
     const nextErrors = validateCheckout(payload);
@@ -330,12 +407,14 @@ export function CheckoutForm() {
             <div className="flex justify-between">
               <dt className="text-muted-foreground">Delivery</dt>
               <dd>
-                {!shipping ? (
+                {!values.state ? (
                   <span className="text-muted-foreground">Choose a state</span>
-                ) : shipping.free ? (
+                ) : ratesLoading && !chosen ? (
+                  <span className="text-muted-foreground">Checking couriers…</span>
+                ) : shippingFee === 0 ? (
                   <span className="text-primary">Free</span>
                 ) : (
-                  money(shipping.fee)
+                  money(shippingFee)
                 )}
               </dd>
             </div>
@@ -353,6 +432,53 @@ export function CheckoutForm() {
               </p>
             )}
           </dl>
+
+          {rates && rates.options.length > 1 && (
+            <>
+              <Separator className="my-6" />
+              <fieldset>
+                <legend className="mb-3 text-sm font-medium">Choose a courier</legend>
+                <div className="space-y-2">
+                  {rates.options.map((option) => (
+                    <label
+                      key={option.id}
+                      className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm transition-colors ${
+                        chosen?.id === option.id ? "border-primary bg-primary/5" : "border-border"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="deliveryService"
+                        value={option.id}
+                        checked={chosen?.id === option.id}
+                        onChange={() => setChosenService(option.id)}
+                        className="mt-1 accent-[#9b3d29]"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-medium">{option.courierName}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {option.serviceName}
+                          {option.deliveryEstimate ? ` · ${option.deliveryEstimate}` : ""}
+                        </span>
+                      </span>
+                      <span className="shrink-0 font-semibold">
+                        {option.price === 0 ? (
+                          <span className="text-primary">Free</span>
+                        ) : (
+                          money(option.price)
+                        )}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                {rates.free && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Delivery is on us for this order — pick whichever courier suits you.
+                  </p>
+                )}
+              </fieldset>
+            </>
+          )}
 
           <Separator className="my-6" />
 

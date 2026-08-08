@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import { updateFulfilment, updateStatus } from "@/app/admin/actions";
 import { FulfilmentBadge, StatusBadge, formatDate } from "@/components/admin/order-table";
 import { RefundForm } from "@/app/admin/(dashboard)/orders/[reference]/refund-form";
+import { ShipmentForm } from "@/app/admin/(dashboard)/orders/[reference]/shipment-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -216,6 +217,55 @@ export default async function AdminOrderPage({
                 </dl>
               ) : (
                 <RefundForm orderId={order.id} amount={money(order.total)} />
+              )}
+            </section>
+          )}
+
+          {order.status === "paid" && !order.refundedAt && (
+            <section className="rounded-lg border border-border bg-card p-6">
+              <h2 className="eyebrow">Courier</h2>
+              {order.shipmentState === "booked" ? (
+                <dl className="mt-4 space-y-2 text-sm">
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">Courier</dt>
+                    <dd>{order.deliveryCourier ?? "—"}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">Consignment</dt>
+                    <dd className="font-mono text-xs">{order.trackingNumber ?? "pending"}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">Booked</dt>
+                    <dd>{order.shipmentBookedAt ? formatDate(order.shipmentBookedAt) : "—"}</dd>
+                  </div>
+                  {order.deliveryCost != null && (
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Cost to us</dt>
+                      <dd>{money(order.deliveryCost)}</dd>
+                    </div>
+                  )}
+                  {order.shipmentAwbUrl && (
+                    <div className="pt-3">
+                      <Button asChild variant="outline" size="sm">
+                        <a href={order.shipmentAwbUrl} target="_blank" rel="noopener noreferrer">
+                          Print consignment note
+                        </a>
+                      </Button>
+                    </div>
+                  )}
+                </dl>
+              ) : (
+                <ShipmentForm
+                  orderId={order.id}
+                  courier={order.deliveryCourier}
+                  serviceName={order.deliveryServiceName}
+                  cost={order.deliveryCost != null ? money(order.deliveryCost) : undefined}
+                />
+              )}
+              {order.shipmentError && order.shipmentState !== "booked" && (
+                <p className="mt-4 text-xs leading-5 text-destructive">
+                  Last attempt failed: {order.shipmentError}
+                </p>
               )}
             </section>
           )}

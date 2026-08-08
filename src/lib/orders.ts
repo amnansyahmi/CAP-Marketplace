@@ -26,6 +26,14 @@ export type OrderStatus = "pending_payment" | "paid" | "failed" | "cancelled";
  */
 export type Fulfilment = "unfulfilled" | "packed" | "shipped" | "delivered";
 
+/**
+ * Where a shipment stands with the courier aggregator.
+ *
+ * `booking` is held while a booking is in flight, so a second click finds the
+ * claim taken rather than spending credit twice.
+ */
+export type ShipmentState = "none" | "booking" | "booked" | "failed";
+
 export const FULFILMENT_STEPS: Fulfilment[] = ["unfulfilled", "packed", "shipped", "delivered"];
 
 export type OrderItem = {
@@ -60,6 +68,20 @@ export type Order = {
   /** Taken off the goods subtotal, never off delivery. */
   discountCode?: string;
   discountAmount?: number;
+
+  /** The courier service the customer chose, frozen at order time. */
+  deliveryServiceId?: string;
+  deliveryCourier?: string;
+  deliveryServiceName?: string;
+  /** What the shop expects to pay the courier, as against `shipping` charged. */
+  deliveryCost?: number;
+
+  /** Where the shipment stands with EasyParcel. */
+  shipmentState: ShipmentState;
+  shipmentOrderNumber?: string;
+  shipmentAwbUrl?: string;
+  shipmentBookedAt?: string;
+  shipmentError?: string;
   shipping: number;
   total: number;
   currency: "MYR";
@@ -104,6 +126,11 @@ export type NewOrder = Omit<
   | "commissionPaidAt"
   | "agentFeeStatus"
   | "agentFeePaidAt"
+  | "shipmentState"
+  | "shipmentOrderNumber"
+  | "shipmentAwbUrl"
+  | "shipmentBookedAt"
+  | "shipmentError"
 > & {
   status?: OrderStatus;
 };
@@ -231,6 +258,15 @@ type OrderRow = {
   refund_reason: string | null;
   discount_code: string | null;
   discount_amount: string | null;
+  delivery_service_id: string | null;
+  delivery_courier: string | null;
+  delivery_service_name: string | null;
+  delivery_cost: string | null;
+  shipment_state: ShipmentState;
+  shipment_order_number: string | null;
+  shipment_awb_url: string | null;
+  shipment_booked_at: Date | string | null;
+  shipment_error: string | null;
 };
 
 type ItemRow = {
@@ -287,6 +323,15 @@ function rowToOrder(row: OrderRow, items: ItemRow[]): Order {
     refundReason: row.refund_reason ?? undefined,
     discountCode: row.discount_code ?? undefined,
     discountAmount: row.discount_amount != null ? Number(row.discount_amount) : undefined,
+    deliveryServiceId: row.delivery_service_id ?? undefined,
+    deliveryCourier: row.delivery_courier ?? undefined,
+    deliveryServiceName: row.delivery_service_name ?? undefined,
+    deliveryCost: row.delivery_cost != null ? Number(row.delivery_cost) : undefined,
+    shipmentState: row.shipment_state ?? "none",
+    shipmentOrderNumber: row.shipment_order_number ?? undefined,
+    shipmentAwbUrl: row.shipment_awb_url ?? undefined,
+    shipmentBookedAt: row.shipment_booked_at ? iso(row.shipment_booked_at) : undefined,
+    shipmentError: row.shipment_error ?? undefined,
     fulfilment: row.fulfilment,
     trackingNumber: row.tracking_number ?? undefined,
     fulfilmentUpdatedAt: row.fulfilment_updated_at ? iso(row.fulfilment_updated_at) : undefined,
@@ -336,8 +381,9 @@ class PostgresOrderStore implements OrderStore {
                notes, subtotal, shipping, total, currency,
                affiliate_id, affiliate_code, commission_rate, commission_amount, commission_status,
                agent_name, agent_fee, agent_fee_status,
-               discount_code, discount_amount
-             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+               discount_code, discount_amount,
+               delivery_service_id, delivery_courier, delivery_service_name, delivery_cost
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
              RETURNING *`,
             [
               id,
@@ -370,6 +416,10 @@ class PostgresOrderStore implements OrderStore {
               order.agentFee != null && order.agentFee > 0 ? "pending" : "none",
               order.discountCode ?? null,
               order.discountAmount ?? null,
+              order.deliveryServiceId ?? null,
+              order.deliveryCourier ?? null,
+              order.deliveryServiceName ?? null,
+              order.deliveryCost ?? null,
             ],
           );
 

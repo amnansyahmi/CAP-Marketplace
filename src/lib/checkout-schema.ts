@@ -18,6 +18,8 @@ export type CheckoutInput = {
   notes?: string;
   /** Optional voucher. Validated and redeemed server-side, never trusted here. */
   discountCode?: string;
+  /** Chosen courier service. Re-priced server-side; the price is never sent. */
+  deliveryServiceId?: string;
   items: { productId: string; quantity: number }[];
 };
 

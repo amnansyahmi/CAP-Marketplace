@@ -10,7 +10,8 @@ import { notifyOrderPaid } from "@/lib/notifications/order-events";
 import { ORDER_COOKIE, addToOrderCookie, issueOrderToken } from "@/lib/order-access";
 import { orderStore, type NewOrder, type OrderItem } from "@/lib/orders";
 import { productById } from "@/lib/products";
-import { quoteShipping, round } from "@/lib/shipping";
+import { round } from "@/lib/shipping";
+import { priceDelivery } from "@/lib/delivery";
 import { discountStore, normaliseDiscountCode } from "@/lib/discounts";
 import { commitReservation, markReserved, releaseReservation, reserve } from "@/lib/stock";
 import { productById as lookupProduct } from "@/lib/products";
@@ -74,11 +75,21 @@ export async function POST(request: Request) {
   // The discount comes off goods only. Delivery is owed to a courier whatever
   // the customer paid for the jars.
   const discountedSubtotal = round(subtotal - (discount?.amount ?? 0));
-  const shippingQuote = quoteShipping(discountedSubtotal, body.state!);
-  if (!shippingQuote) {
+
+  // Re-priced here rather than trusted from the browser, exactly like the line
+  // prices: a postage figure that arrives from a client is a suggestion. If
+  // the chosen courier has withdrawn its service since the quote, this falls
+  // back rather than stranding the customer on the payment page.
+  const delivery = await priceDelivery(
+    items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+    { postcode: body.postcode!.trim(), state: body.state!.trim() },
+    discountedSubtotal,
+    typeof body.deliveryServiceId === "string" ? body.deliveryServiceId : undefined,
+  );
+  if (!delivery) {
     return NextResponse.json({ errors: { state: "We do not deliver to that state." } }, { status: 422 });
   }
-  const total = round(discountedSubtotal + shippingQuote.fee);
+  const total = round(discountedSubtotal + delivery.price);
 
   // Referral attribution. The cookie only carries a claimed code; it is looked
   // up here and ignored unless it belongs to an active affiliate, so a customer
@@ -125,7 +136,17 @@ export async function POST(request: Request) {
     notes: body.notes?.trim() || undefined,
     subtotal,
     ...(discount ? { discountCode: discount.code, discountAmount: discount.amount } : {}),
-    shipping: shippingQuote.fee,
+    shipping: delivery.price,
+    // Kept apart from what the customer paid: free delivery means the shop
+    // absorbs the courier's fee, and folding them together would hide that.
+    deliveryCost: delivery.cost,
+    ...(delivery.serviceId
+      ? {
+          deliveryServiceId: delivery.serviceId,
+          deliveryCourier: delivery.courierName,
+          deliveryServiceName: delivery.serviceName,
+        }
+      : {}),
     total,
     currency: "MYR",
   };
