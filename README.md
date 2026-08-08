@@ -193,6 +193,93 @@ read every customer's name, phone number and delivery address.
 - A single shared password suits one shop owner. For more than one person,
   replace it with real accounts rather than sharing the secret.
 
+## The shopfront
+
+### Policy pages
+
+`/terms`, `/privacy`, `/returns`, `/shipping` and `/contact`. Not boilerplate:
+the privacy policy describes the cookies this shop actually sets and the three
+third parties it actually contacts, the delivery page reads its rates from
+`ZONE_RATES` so it cannot drift from what checkout charges, and the returns
+policy says plainly that opened food cannot come back rather than promising a
+30-day return it could not honour.
+
+A payment gateway will look for these during merchant verification, so the gap
+is worth closing before applying rather than after being asked.
+
+**The business details are not invented.** They come from the environment, and
+any that are missing are reported as missing — on the policy pages themselves
+and on the contact page. A policy naming a plausible-looking business nobody can
+reach is worse than one that admits it is incomplete.
+
+| Variable | Purpose |
+| --- | --- |
+| `NEXT_PUBLIC_SHOP_LEGAL_NAME` | Registered entity, if different from the brand |
+| `NEXT_PUBLIC_SHOP_REGISTRATION` | SSM registration number |
+| `NEXT_PUBLIC_SHOP_EMAIL` | Support email, shown on every policy page |
+| `NEXT_PUBLIC_SHOP_PHONE` | Support phone |
+| `NEXT_PUBLIC_SHOP_ADDRESS` | Business address, pipe-separated for line breaks |
+| `NEXT_PUBLIC_SHOP_WHATSAPP` | Optional; becomes a wa.me link on the contact page |
+
+### Finding an order again
+
+`/orders/find` takes an order reference *and* the email it was placed with. The
+reference alone deliberately does not open an order — that is what the signed
+email links are for — and pairing it with the email is the one extra detail a
+real customer always has. A wrong pair gives the same message as a reference
+that does not exist, so the form cannot be used to test which references are
+real, and it is throttled because that is exactly the shape of thing people
+script.
+
+### The newsletter
+
+The footer form used to accept an address, appear to succeed and throw it away.
+It now records subscribers, and unsubscribing sets a timestamp rather than
+deleting the row — a deleted record would be silently re-created the next time
+that person typed their address in, and the shop would start emailing someone
+who asked it to stop. Unsubscribe links are signed, so editing the address in
+the URL cannot remove somebody else.
+
+Signing up twice gets the same message as signing up once. "You are already
+subscribed" would quietly confirm to a stranger that an address is on the list.
+
+### Rate limiting
+
+`/api/orders`, `/api/discount`, `/api/shipping/rates`, the newsletter form and
+the order lookup all go through a shared limiter. Order creation is the one that
+matters: it is unauthenticated and it reserves stock, redeems discount codes and
+calls a payment gateway, so left open a script could hold every jar in pending
+reservations without paying for anything.
+
+**It is in-process, so it does not hold across instances.** On one container it
+is a real limit; across several it becomes N times the limit. That raises the
+cost of abuse rather than removing it — put a limit at the edge as well.
+
+### Being found
+
+`sitemap.xml` and `robots.txt` are generated, and product pages carry Product
+structured data with price and availability so search results can show both.
+
+Availability is only claimed for a product the shop actually counts, and the
+product page revalidates every five minutes to keep it close to true. A page
+statically asserting "in stock" while the shop is sold out is a false claim in a
+machine-readable format, and a mismatch between structured data and the page is
+a reason search engines distrust the whole site. For the same reason there is no
+review or rating markup: there are no reviews yet, and fabricating them is the
+most common way a shop loses its rich results.
+
+### Reports
+
+`/admin/reports` shows revenue by day, best sellers, average order value and how
+the period compares with the one before. Everything nets off refunds, because a
+best-seller list counting refunded orders points the shop at the wrong product.
+Low stock is flagged here and on the stock page, but only for products that are
+actually tracked — warning about an untracked one is noise the owner learns to
+ignore.
+
+The chart is markup, not a charting library, and the same numbers are in a table
+underneath for anyone the chart does not work for.
+
 ## Delivery and couriers
 
 Two layers, and the order matters: **checkout never depends on a courier API

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { deliveryOptions } from "@/lib/delivery";
 import { productById } from "@/lib/products";
 import { round } from "@/lib/shipping";
+import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
 
 /**
  * Courier options for a bag going to a destination.
@@ -19,6 +20,11 @@ import { round } from "@/lib/shipping";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  // Each call can reach the courier API. Generous, because checkout refetches
+  // legitimately as the customer edits their address.
+  const gate = rateLimit(`rates:${clientKey(request)}`, { limit: 60, windowMs: 5 * 60 * 1000 });
+  if (!gate.allowed) return tooManyRequests(gate.retryInMs);
+
   let body: { state?: string; postcode?: string; items?: { productId?: string; quantity?: number }[] };
   try {
     body = await request.json();

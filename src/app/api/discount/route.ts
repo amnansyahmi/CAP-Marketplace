@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { discountStore, normaliseDiscountCode } from "@/lib/discounts";
 import { productById } from "@/lib/products";
 import { round } from "@/lib/shipping";
+import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
 
 /**
  * Checks a code so the checkout can show the new total before submitting.
@@ -18,6 +19,11 @@ import { round } from "@/lib/shipping";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  // Codes are short and guessable; without a limit this is an oracle for
+  // finding live promotions.
+  const gate = rateLimit(`discount:${clientKey(request)}`, { limit: 20, windowMs: 5 * 60 * 1000 });
+  if (!gate.allowed) return tooManyRequests(gate.retryInMs);
+
   let body: { code?: string; items?: { productId?: string; quantity?: number }[] };
   try {
     body = await request.json();

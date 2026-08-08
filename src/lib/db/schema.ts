@@ -184,6 +184,21 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS refunded_at timestamptz;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_amount numeric(10,2) CHECK (refund_amount >= 0);
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_reason text;
 
+-- Newsletter subscribers.
+--
+-- An "unsubscribed_at" column rather than deleting the row: someone who opted
+-- out has to stay opted out, and a deleted row would be silently re-created the
+-- next time they typed their address into the footer.
+CREATE TABLE IF NOT EXISTS subscribers (
+  email           text PRIMARY KEY,
+  subscribed_at   timestamptz NOT NULL DEFAULT now(),
+  unsubscribed_at timestamptz,
+  -- Where they signed up, so the shop can tell what is working.
+  source          text
+);
+
+CREATE INDEX IF NOT EXISTS subscribers_active_idx ON subscribers (unsubscribed_at);
+
 -- One row per message we have decided to send about an order.
 --
 -- The primary key is the claim: a sender inserts before sending, and a second

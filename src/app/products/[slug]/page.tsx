@@ -4,17 +4,30 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
 import { AddToBag } from "@/components/add-to-bag";
+import { ProductSchema } from "@/components/product-schema";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { HERITAGE_NOTE, productBySlug, products } from "@/lib/products";
 import { ZONE_RATES } from "@/lib/shipping";
+import { availability } from "@/lib/stock";
 import { money } from "@/lib/utils";
 
 export function generateStaticParams() {
   return products.map((p) => ({ slug: p.slug }));
 }
+
+/**
+ * Rebuilt every five minutes.
+ *
+ * Statically rendered pages are the right default here, but the page now
+ * publishes stock availability as structured data, and a page that tells a
+ * search engine "in stock" while the shop is sold out is a false machine-
+ * readable claim. Five minutes keeps that honest without giving up static
+ * rendering for every visitor.
+ */
+export const revalidate = 300;
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
@@ -35,8 +48,16 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
   const others = products.filter((p) => p.id !== product.id);
   const { nutrition } = product;
 
+  // Only claim availability for a product the shop actually counts — and only
+  // when the database is reachable at all. This page is prerendered, and a
+  // build machine has no database, so a hard read here would break the build
+  // rather than merely omit a line of structured data.
+  const soldOut = await soldOutState(product.id);
+  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+
   return (
     <div className="min-h-screen bg-background text-foreground">
+      <ProductSchema product={product} soldOut={soldOut} siteUrl={siteUrl} />
       <SiteHeader />
       <main id="main-content" tabIndex={-1} className="outline-none">
 
@@ -163,4 +184,23 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
       <SiteFooter />
     </div>
   );
+}
+
+/**
+ * Whether a product is sold out, or undefined when that is not knowable.
+ *
+ * Undefined covers three cases that should all behave the same way: the product
+ * is not stock-tracked, the database is unreachable, or this is a build machine
+ * with no database at all. In every one of them the page simply does not claim
+ * an availability — which is the honest answer, and the one that keeps the
+ * structured data from asserting something it cannot stand behind.
+ */
+async function soldOutState(productId: string): Promise<boolean | undefined> {
+  try {
+    const level = (await availability()).get(productId);
+    if (!level?.tracked) return undefined;
+    return level.available === 0;
+  } catch {
+    return undefined;
+  }
 }

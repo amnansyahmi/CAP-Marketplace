@@ -137,3 +137,67 @@
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E");
   }
 }
+
+@layer components {
+  /* Long-form legal and policy copy. Set once so every policy page reads the
+     same, and so the wording can be written as plain markup. */
+  .policy {
+    font-size: 0.975rem;
+    line-height: 1.85;
+    color: var(--foreground);
+  }
+  .policy h2 {
+    margin-top: 2.75rem;
+    margin-bottom: 0.85rem;
+    font-family: var(--font-serif);
+    font-size: 1.65rem;
+    letter-spacing: -0.02em;
+  }
+  .policy h3 {
+    margin-top: 1.75rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+  }
+  .policy p,
+  .policy ul,
+  .policy ol {
+    margin-bottom: 1.1rem;
+  }
+  .policy ul,
+  .policy ol {
+    padding-left: 1.35rem;
+  }
+  .policy ul {
+    list-style: disc;
+  }
+  .policy ol {
+    list-style: decimal;
+  }
+  .policy li {
+    margin-bottom: 0.4rem;
+  }
+  .policy a {
+    color: var(--primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .policy strong {
+    font-weight: 600;
+  }
+  .policy table {
+    width: 100%;
+    margin-bottom: 1.25rem;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  .policy th,
+  .policy td {
+    border-bottom: 1px solid var(--border);
+    padding: 0.6rem 0.5rem 0.6rem 0;
+    text-align: left;
+    vertical-align: top;
+  }
+  .policy th {
+    font-weight: 600;
+  }
+}

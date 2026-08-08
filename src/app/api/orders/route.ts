@@ -11,6 +11,7 @@ import { ORDER_COOKIE, addToOrderCookie, issueOrderToken } from "@/lib/order-acc
 import { orderStore, type NewOrder, type OrderItem } from "@/lib/orders";
 import { productById } from "@/lib/products";
 import { round } from "@/lib/shipping";
+import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { priceDelivery } from "@/lib/delivery";
 import { discountStore, normaliseDiscountCode } from "@/lib/discounts";
 import { commitReservation, markReserved, releaseReservation, reserve } from "@/lib/stock";
@@ -26,6 +27,12 @@ function baseUrl(request: Request) {
 }
 
 export async function POST(request: Request) {
+  // Unauthenticated, and every call reserves stock, may redeem a discount code
+  // and contacts the payment gateway. A script left unchecked could hold every
+  // jar in pending reservations without paying for anything.
+  const gate = rateLimit(`orders:${clientKey(request)}`, { limit: 12, windowMs: 10 * 60 * 1000 });
+  if (!gate.allowed) return tooManyRequests(gate.retryInMs);
+
   let body: Partial<CheckoutInput>;
   try {
     body = await request.json();
