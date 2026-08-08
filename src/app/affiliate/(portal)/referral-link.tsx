@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { Button } from "@/components/ui/button";
+
+/** The origin never changes within a page's life, so nothing to subscribe to. */
+const noSubscribe = () => () => {};
+const clientOrigin = () => window.location.origin;
 
 /**
  * The affiliate's link, with a copy button.
@@ -13,12 +17,13 @@ import { Button } from "@/components/ui/button";
  * laptop, where `NEXT_PUBLIC_SITE_URL` is either unset or points somewhere else.
  */
 export function ReferralLink({ code, fallback }: { code: string; fallback: string }) {
-  const [link, setLink] = useState(fallback);
-  const [copied, setCopied] = useState(false);
+  // Reading `window` through the store rather than an effect: React hands back
+  // the server snapshot for the hydrating render and the real origin straight
+  // after, with no intermediate render carrying a value we know is stale.
+  const origin = useSyncExternalStore(noSubscribe, clientOrigin, () => null);
+  const link = origin ? `${origin}/?ref=${code}` : fallback;
 
-  useEffect(() => {
-    setLink(`${window.location.origin}/?ref=${code}`);
-  }, [code]);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!copied) return;

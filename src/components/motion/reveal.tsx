@@ -27,12 +27,20 @@ export function Reveal({ children, className, delay = 0, distance = 24, as = "di
   const ref = useRef<HTMLElement>(null);
   const reduced = useReducedMotion();
   const [shown, setShown] = useState(false);
-  const [armed, setArmed] = useState(false);
+
+  /**
+   * Whether to hide anything at all.
+   *
+   * `useReducedMotion` reports `true` on the server and through hydration, so
+   * this is false for the first paint no matter what — the content is on screen
+   * and staying there. It only becomes true on a client that has told us it
+   * wants motion *and* can observe the viewport; without an observer nothing
+   * would ever set `shown`, and arming would hide the page permanently.
+   */
+  const armed = !reduced && typeof IntersectionObserver !== "undefined";
 
   useEffect(() => {
-    if (reduced) return;
-    // Only hide once we know motion is wanted and an observer is available.
-    setArmed(true);
+    if (!armed) return;
 
     const node = ref.current;
     if (!node) return;
@@ -53,7 +61,7 @@ export function Reveal({ children, className, delay = 0, distance = 24, as = "di
 
     observer.observe(node);
     return () => observer.disconnect();
-  }, [reduced]);
+  }, [armed]);
 
   const Tag = as as "div";
   const hidden = armed && !shown;

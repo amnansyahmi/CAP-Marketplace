@@ -120,6 +120,10 @@ export function CheckoutForm() {
   useEffect(() => {
     const state = values.state;
     if (!state) {
+      // Clearing quotes that no longer apply to the address being typed. This
+      // is a genuine effect — it synchronises with a fetch, and stale courier
+      // prices are worse than none — so the setState here is deliberate.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setRates(null);
       return;
     }
@@ -159,6 +163,7 @@ export function CheckoutForm() {
     // Postcode is deliberately not a dependency: rates change by state and by
     // what is in the bag, and refetching on every keystroke of a postcode
     // would hammer the courier API for no benefit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [values.state, bagKey, discountedSubtotal]);
 
   async function applyDiscount() {

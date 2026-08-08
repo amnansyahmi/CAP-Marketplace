@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "test": "tsx --test \"src/**/*.test.ts\"",
-    "lint": "next lint",
+    "lint": "eslint .",
     "jars": "tsx scripts/unwrap-jars.mts"
   },
   "dependencies": {

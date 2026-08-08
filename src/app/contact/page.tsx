@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
@@ -115,9 +116,9 @@ export default function ContactPage() {
           <div className="mt-16 border-t border-border pt-8 text-sm leading-7 text-muted-foreground">
             <p>
               Looking for an order you placed?{" "}
-              <a href="/orders/find" className="text-primary hover:underline">
+              <Link href="/orders/find" className="text-primary hover:underline">
                 Find it here
-              </a>{" "}
+              </Link>{" "}
               with your reference and email address.
             </p>
             <p className="mt-2">

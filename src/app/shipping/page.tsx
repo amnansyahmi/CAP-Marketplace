@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { PolicyPage } from "@/components/policy-page";
 import { ZONE_RATES } from "@/lib/shipping";
@@ -73,7 +74,7 @@ export default function ShippingPage() {
       </p>
       <p>
         Lost the email? You can{" "}
-        <a href="/orders/find">look your order up</a> with your order reference and the email address
+        <Link href="/orders/find">look your order up</Link> with your order reference and the email address
         you used.
       </p>
 

@@ -51,9 +51,15 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   // Read once on mount rather than during render — the server has no
   // localStorage, and reading it inline would desync the first paint.
+  //
+  // This is the one case the "no setState in an effect" rule explicitly allows:
+  // pulling initial state out of an external system. The first client render
+  // has to show the same empty bag the server rendered, so the saved bag cannot
+  // arrive any earlier than this.
   useEffect(() => {
     try {
       const stored = window.localStorage.getItem(STORAGE_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (stored) setState(sanitise(JSON.parse(stored)));
     } catch {
       // A corrupt or unavailable bag should never block the shop from loading.
