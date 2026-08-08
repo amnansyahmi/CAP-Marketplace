@@ -114,6 +114,9 @@ export function JarMesh({
   const texture = useLoader(THREE.TextureLoader, image);
   const camera = useThree((state) => state.camera) as THREE.PerspectiveCamera;
   const size = useThree((state) => state.size);
+  // On a still jar the frame loop is on demand, so anything that changes what
+  // the picture should look like has to ask for a new one.
+  const invalidate = useThree((state) => state.invalidate);
 
   const geometry = useMemo(() => {
     const profile = PROFILES[productId] ?? Object.values(PROFILES)[0];
@@ -194,7 +197,14 @@ export function JarMesh({
 
     camera.position.z = Math.max(forHeight, forWidth);
     camera.updateProjectionMatrix();
-  }, [camera, size.width, size.height, extent]);
+    invalidate();
+  }, [camera, size.width, size.height, extent, invalidate]);
+
+  // The first paint. `useLoader` suspends until the texture is decoded, so this
+  // runs once it is genuinely ready to be drawn.
+  useEffect(() => {
+    invalidate();
+  }, [texture, material, geometry, invalidate]);
 
   const elapsed = useRef(0);
 
