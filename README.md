@@ -193,6 +193,71 @@ read every customer's name, phone number and delivery address.
 - A single shared password suits one shop owner. For more than one person,
   replace it with real accounts rather than sharing the secret.
 
+## The 3D jars
+
+Each jar is real geometry that turns, not a photograph on a card.
+
+### How the photograph becomes a texture
+
+The product shots are straight-on views of a cylinder, so the label is
+progressively squashed toward the edges: a point at angle θ appears at
+`x = r·sin(θ)`, not at a position proportional to θ. `npm run jars` inverts that
+projection, sampling the photo at `sin(θ)` for each column of output, which
+un-squashes the label into a flat strip. The radius is measured **per row** off
+the alpha channel, so the narrower cap and the tapered base unwrap correctly
+too, and the same measurements become the lathe profile — the jar's silhouette
+is the real one rather than a cylinder somebody guessed at.
+
+**What cannot be recovered:** near θ = ±90° the surface is edge-on and an entire
+band of label is compressed into a couple of pixels. There is nothing there to
+recover, so only the middle ±72° is taken from the photograph. The rest of the
+turn continues each row's colour round the back — the label's horizontal bands
+carry on, which is what the real packaging does. No text, nutrition panel or
+barcode is invented, because inventing product information is not a rendering
+decision.
+
+### Why the material is unlit
+
+The photograph already has studio lighting in it. Lighting it again would double
+every shadow. So the base colour is the texture as photographed, and what is
+added is view-dependent: the surface darkens where it turns away from the
+camera, and a soft highlight sits where the key light was. Both are computed
+against the view direction, so they stay put while the jar turns underneath.
+
+The honest limitation: the highlight *photographed into* the texture rotates
+with the jar. Nothing fixes that short of relighting the shot, and at a normal
+turn speed it reads as reflection.
+
+### What it costs, measured
+
+Against a production build, on the product page:
+
+| | JS over the wire | Images |
+| --- | --- | --- |
+| With 3D | 469KB | 259KB |
+| Reduced motion (no 3D) | 238KB | 107KB |
+
+So **3D adds about 231KB of JavaScript and 152KB of texture per jar**. That is
+not free, and on the hero it means three textures.
+
+Four things keep it off the critical path:
+
+1. **The photograph renders first, always**, and stays as the fallback. WebGL
+   fades in over the top. Nobody waits on a renderer to see the product.
+2. **Nothing loads until it is near the viewport**, so a jar further down the
+   page costs nothing to a visitor who never scrolls there.
+3. **It gives up quietly** — reduced motion, no WebGL, or a context that fails
+   to create all leave the photograph in place. Verified: reduced motion renders
+   zero canvases and downloads no three.js.
+4. **The "drag to turn" hint only appears once it can actually be dragged.**
+   Telling somebody to turn a photograph is worse than saying nothing.
+
+Auto-drift runs in the hero only. On a product page the jar holds still until
+dragged — a jar that turns away while you are reading the ingredients is an
+irritation, not a flourish.
+
+Re-run `npm run jars` after replacing any product photograph.
+
 ## The shopfront
 
 ### Policy pages

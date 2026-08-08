@@ -12,6 +12,7 @@ import { cn, money } from "@/lib/utils";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Marquee } from "@/components/marquee";
+import { Jar } from "@/components/jar3d/jar";
 import { HeroJars } from "@/components/motion/hero-jars";
 import { Reveal } from "@/components/motion/reveal";
 import { Button } from "@/components/ui/button";
@@ -284,14 +285,19 @@ function QuickViewDialog({
         {product && (
           <div className="grid sm:grid-cols-2">
             <div className="relative aspect-square sm:aspect-auto" style={{ backgroundColor: `${product.accent}14` }}>
-              <Image
-                src={product.image}
-                alt={product.name}
-                fill
-                sizes="(max-width: 640px) 100vw, 320px"
-                className="object-contain p-6"
-              />
-              <div className="absolute left-5 top-5 text-3xl text-black/25">{product.arabic}</div>
+              <div className="absolute inset-0 p-6">
+                <Jar
+                  productId={product.id}
+                  image={product.image}
+                  wrap={product.wrap}
+                  alt={product.name}
+                  sizes="(max-width: 640px) 100vw, 320px"
+                  className="h-full w-full"
+                />
+              </div>
+              <div className="pointer-events-none absolute left-5 top-5 text-3xl text-black/25">
+                {product.arabic}
+              </div>
             </div>
             <div className="flex flex-col p-6">
               <DialogHeader>

@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import { Jar } from "@/components/jar3d/jar";
 import { useEffect, useRef, useState } from "react";
 
 import { useReducedMotion } from "@/lib/use-reduced-motion";
@@ -95,13 +95,18 @@ export function HeroJars({ products }: { products: Product[] }) {
                 willChange: reduced ? undefined : "transform",
               }}
             >
-              <Image
-                src={product.image}
+              <Jar
+                productId={product.id}
+                image={product.image}
+                wrap={product.wrap}
                 alt={`${product.name} jar`}
-                fill
                 priority={isCentre}
+                // The centre jar turns a little faster: it is the one people
+                // look at, and three jars drifting in lockstep reads as a
+                // carousel rather than three objects.
+                drift={isCentre ? 0.26 : 0.16}
                 sizes="(max-width: 1024px) 30vw, 22vw"
-                className="object-contain object-bottom drop-shadow-[0_22px_34px_rgba(60,32,12,.28)]"
+                className="h-full w-full"
               />
             </div>
           );

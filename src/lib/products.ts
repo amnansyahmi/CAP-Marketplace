@@ -31,6 +31,8 @@ export type Product = {
   price: number;
   weightGrams: number;
   image: string;
+  /** Unwrapped 360° texture for the 3D jar. See scripts/unwrap-jars.mts. */
+  wrap: string;
   accent: string;
   tags: string[];
   servingSuggestions: string[];
@@ -65,6 +67,7 @@ export const products: Product[] = [
     price: 19.9,
     weightGrams: 350,
     image: "/products/kabsah.webp",
+    wrap: "/products/3d/kabsah-wrap.webp",
     accent: "#903008",
     tags: ["Warm spice", "Family favourite"],
     servingSuggestions: ["Chicken kabsah", "Lamb over basmati", "Roast vegetables"],
@@ -81,6 +84,7 @@ export const products: Product[] = [
     price: 19.9,
     weightGrams: 350,
     image: "/products/mandy.webp",
+    wrap: "/products/3d/mandy-wrap.webp",
     accent: "#502008",
     tags: ["Smoky", "Light spice"],
     servingSuggestions: ["Smoked chicken mandy", "Slow-roast lamb", "Rice pilaf"],
@@ -97,6 +101,7 @@ export const products: Product[] = [
     price: 19.9,
     weightGrams: 350,
     image: "/products/briyani.webp",
+    wrap: "/products/3d/briyani-wrap.webp",
     accent: "#600808",
     tags: ["Bold aroma", "Celebration rice"],
     servingSuggestions: ["Chicken briyani", "Beef dum briyani", "Festive rice"],

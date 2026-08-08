@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
 import { AddToBag } from "@/components/add-to-bag";
+import { Jar } from "@/components/jar3d/jar";
 import { ProductSchema } from "@/components/product-schema";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
@@ -79,14 +80,18 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
         <div className="relative aspect-[4/5] overflow-hidden rounded-lg" style={{ backgroundColor: `${product.accent}14` }}>
           <div className="absolute inset-0 grain" />
           <div className="absolute left-6 top-6 font-serif text-6xl leading-none text-black/[.08]">{product.arabic}</div>
-          <Image
-            src={product.image}
-            alt={product.name}
-            fill
-            priority
-            sizes="(max-width: 1024px) 100vw, 50vw"
-            className="object-contain p-10 drop-shadow-[0_20px_30px_rgba(0,0,0,.18)]"
-          />
+          <div className="absolute inset-0 p-10">
+            <Jar
+              productId={product.id}
+              image={product.image}
+              wrap={product.wrap}
+              alt={product.name}
+              priority
+              sizes="(max-width: 1024px) 100vw, 50vw"
+              className="h-full w-full"
+              hint
+            />
+          </div>
         </div>
 
         <div className="flex flex-col">
