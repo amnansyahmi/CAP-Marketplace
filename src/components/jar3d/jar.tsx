@@ -59,10 +59,24 @@ export function Jar({
   alt,
   priority = false,
   drift,
+  sway,
   className = "",
   sizes = "(max-width: 1024px) 60vw, 30vw",
   /** Shows a "drag to turn" hint, but only once the jar can actually turn. */
   hint = false,
+  /**
+   * Below this rendered width, in CSS pixels, the photograph is kept.
+   *
+   * On a phone the three hero jars render about 104px across. A 3D jar that
+   * small is not a flourish anyone can see — it is a quarter of a megabyte of
+   * renderer plus a texture per jar, spent on something indistinguishable from
+   * the photograph already sitting there.
+   *
+   * Measured: 104px on a 393px phone, 213-220px on tablet and desktop. 180
+   * falls in the gap, so the hero keeps its 3D on larger screens and drops to
+   * the photographs on a phone, without a media query having to guess.
+   */
+  minWidth = 180,
 }: {
   productId: string;
   image: string;
@@ -70,9 +84,11 @@ export function Jar({
   alt: string;
   priority?: boolean;
   drift?: number;
+  sway?: number;
   className?: string;
   sizes?: string;
   hint?: boolean;
+  minWidth?: number;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const reduced = useReducedMotion();
@@ -103,13 +119,15 @@ export function Jar({
 
   useEffect(() => {
     if (!near || reduced) return;
+    // Too small to be worth the download.
+    if ((host.current?.clientWidth ?? 0) < minWidth) return;
     if (!canRenderWebGL()) return;
 
     // A frame's grace so the photograph has painted before the renderer starts
     // competing for the main thread.
     const timer = setTimeout(() => setReady(true), 80);
     return () => clearTimeout(timer);
-  }, [near, reduced]);
+  }, [near, reduced, minWidth]);
 
   return (
     // Always `relative`, because the photograph inside uses `fill` and needs a
@@ -135,6 +153,7 @@ export function Jar({
           image={wrap}
           alt={alt}
           drift={drift}
+          sway={sway}
           className="absolute inset-0 animate-[fadeIn_.7s_ease-out_both]"
         />
       )}
@@ -142,7 +161,10 @@ export function Jar({
       {/* Only once it can actually be dragged. Telling somebody to turn a
           photograph is worse than saying nothing. */}
       {hint && ready && (
-        <p className="pointer-events-none absolute inset-x-0 bottom-0 animate-[fadeIn_.7s_ease-out_both] text-center text-[10px] font-semibold uppercase tracking-[.18em] text-foreground/40">
+        // Sits below the jar rather than across its base. Callers pad the
+        // container, so this reaches into that padding instead of overlapping
+        // the product.
+        <p className="pointer-events-none absolute inset-x-0 -bottom-7 animate-[fadeIn_.7s_ease-out_both] text-center text-[10px] font-semibold uppercase tracking-[.18em] text-foreground/45">
           Drag to turn
         </p>
       )}

@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useRef } from "react";
-import { useFrame, useLoader } from "@react-three/fiber";
+import { useEffect, useMemo, useRef } from "react";
+import { useFrame, useLoader, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 
 import profiles from "@/../public/products/3d/profiles.json";
@@ -92,17 +92,28 @@ export function JarMesh({
   image,
   spin,
   autoSpin,
+  sway,
 }: {
   productId: string;
   /** The unwrapped 360° texture. */
   image: string;
   /** Radians. Driven by the parent so drag and scroll can both feed it. */
   spin: React.RefObject<number>;
-  /** Radians per second when nobody is dragging. */
+  /**
+   * Idle movement.
+   *
+   * `sway` rocks gently either side of the label instead of turning all the way
+   * round. A hero jar that drifts continuously spends most of its time showing
+   * the plain back of the label, which is the least interesting view of the
+   * product and the one with no branding on it.
+   */
   autoSpin: number;
+  sway?: number;
 }) {
   const mesh = useRef<THREE.Mesh>(null);
   const texture = useLoader(THREE.TextureLoader, image);
+  const camera = useThree((state) => state.camera) as THREE.PerspectiveCamera;
+  const size = useThree((state) => state.size);
 
   const geometry = useMemo(() => {
     const profile = PROFILES[productId] ?? Object.values(PROFILES)[0];
@@ -134,6 +145,13 @@ export function JarMesh({
     return lathe;
   }, [productId]);
 
+  /** How much space the jar needs, in world units. */
+  const extent = useMemo(() => {
+    const profile = PROFILES[productId] ?? Object.values(PROFILES)[0];
+    // Diameter is 2 because radii are normalised to a maximum of 1.
+    return { width: 2, height: profile.aspect * 2 };
+  }, [productId]);
+
   const material = useMemo(() => {
     texture.colorSpace = THREE.SRGBColorSpace;
     // The texture wraps the whole way round, so the seam at the back needs the
@@ -156,12 +174,42 @@ export function JarMesh({
     });
   }, [texture]);
 
+  /**
+   * Pull the camera back far enough that the whole jar fits.
+   *
+   * A canvas does not have `object-fit`. With a fixed camera distance, a tall
+   * narrow box — three jars side by side on a phone, say — sees a viewport
+   * narrower than the jar is wide, and the sides are simply cut off. Fitting to
+   * whichever dimension is tighter is the 3D equivalent of `object-contain`.
+   */
+  useEffect(() => {
+    if (!camera.isPerspectiveCamera) return;
+    const aspect = Math.max(0.0001, size.width / size.height);
+    const halfFov = (camera.fov * Math.PI) / 360;
+
+    // A little air, so the jar never touches the edge of its box.
+    const margin = 1.12;
+    const forHeight = (extent.height * margin) / (2 * Math.tan(halfFov));
+    const forWidth = (extent.width * margin) / (2 * Math.tan(halfFov) * aspect);
+
+    camera.position.z = Math.max(forHeight, forWidth);
+    camera.updateProjectionMatrix();
+  }, [camera, size.width, size.height, extent]);
+
+  const elapsed = useRef(0);
+
   useFrame((_, delta) => {
     if (!mesh.current) return;
+    elapsed.current += delta;
     spin.current += autoSpin * delta;
+
+    // A slow rock either side of whatever the jar is currently turned to, so a
+    // dragged jar keeps the angle the visitor chose.
+    const rock = sway ? Math.sin(elapsed.current * 0.55) * sway : 0;
+
     // π offset because the texture puts the front of the label at u = 0.5,
     // while the lathe starts its sweep at u = 0.
-    mesh.current.rotation.y = spin.current + Math.PI;
+    mesh.current.rotation.y = spin.current + rock + Math.PI;
   });
 
   return <mesh ref={mesh} geometry={geometry} material={material} />;

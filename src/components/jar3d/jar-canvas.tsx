@@ -27,12 +27,15 @@ export function JarCanvas({
    * while you are looking at the ingredients is an irritation, not a flourish.
    */
   drift = 0,
+  /** Radians of gentle rocking either side of the current angle. */
+  sway = 0,
   className,
 }: {
   productId: string;
   image: string;
   alt: string;
   drift?: number;
+  sway?: number;
   className?: string;
 }) {
   const spin = useRef(0);
@@ -116,7 +119,7 @@ export function JarCanvas({
         {/* useLoader suspends while the texture downloads. Without a boundary
             inside the Canvas, R3F renders an empty scene and never recovers. */}
         <Suspense fallback={null}>
-          <JarMesh productId={productId} image={image} spin={spin} autoSpin={drift} />
+          <JarMesh productId={productId} image={image} spin={spin} autoSpin={drift} sway={sway} />
         </Suspense>
       </Canvas>
     </div>

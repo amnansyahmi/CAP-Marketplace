@@ -101,10 +101,11 @@ export function HeroJars({ products }: { products: Product[] }) {
                 wrap={product.wrap}
                 alt={`${product.name} jar`}
                 priority={isCentre}
-                // The centre jar turns a little faster: it is the one people
-                // look at, and three jars drifting in lockstep reads as a
-                // carousel rather than three objects.
-                drift={isCentre ? 0.26 : 0.16}
+                // Rocking, not turning. The hero's job is to show the label,
+                // and a jar that drifts continuously spends most of its time
+                // showing the plain back. The centre jar rocks a little wider,
+                // so three jars do not move in lockstep.
+                sway={isCentre ? 0.3 : 0.2}
                 sizes="(max-width: 1024px) 30vw, 22vw"
                 className="h-full w-full"
               />
