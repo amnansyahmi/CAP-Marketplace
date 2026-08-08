@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["sin1"],
+  "headers": [
+    {
+      "source": "/api/partner/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "no-store, private" }]
+    },
+    {
+      "source": "/admin/(.*)",
+      "headers": [
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+        { "key": "Cache-Control", "value": "no-store, private" }
+      ]
+    }
+  ]
+}
