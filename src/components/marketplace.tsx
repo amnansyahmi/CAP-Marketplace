@@ -124,7 +124,10 @@ function Hero() {
           <span className="text-sm text-muted-foreground">From {money(startingPrice())} per 350g jar</span>
         </Reveal>
       </div>
-      <div className="relative min-h-[520px] overflow-hidden bg-[#ded2bd] spice-field lg:min-h-full">
+      {/* Sized to the jars at their own proportions, plus room above for the
+          caption. It was 520px, which left a band of empty beige above them
+          once the artwork had been fitted to the width of the screen. */}
+      <div className="relative min-h-[380px] overflow-hidden bg-[#ded2bd] spice-field sm:min-h-[460px] lg:min-h-full">
         <div className="absolute inset-0 grain" />
         <div className="absolute left-[6%] top-[8%] font-serif text-[10rem] leading-none text-black/[.05] lg:text-[17rem]">
           أ

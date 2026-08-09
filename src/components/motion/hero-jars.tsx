@@ -74,7 +74,9 @@ export function HeroJars({ products }: { products: Product[] }) {
         }}
       />
 
-      <div className="absolute inset-0 flex items-end justify-center gap-[3%] px-[6%] pb-[7%]">
+      {/* Widths add up to just under the content box, so the row never spills;
+          the padding is what keeps the outer jars off the edge of the screen. */}
+      <div className="absolute inset-0 flex items-end justify-center gap-[2%] px-[5%] pb-[7%]">
         {products.map((product, i) => {
           const isCentre = i === 1;
           // Depth: the centre jar is nearest, so it reacts least.
@@ -83,7 +85,19 @@ export function HeroJars({ products }: { products: Product[] }) {
           return (
             <div
               key={product.id}
-              className={`relative w-[30%] ${isCentre ? "h-[88%]" : "h-[72%]"}`}
+              /**
+               * Sized by the jar's own proportions, never by a share of the
+               * panel's height.
+               *
+               * These boxes used to be `h-[88%]` and `h-[72%]` of a 520px
+               * panel while being only 30% of the screen wide. A jar
+               * photograph is 847×1495, so `object-contain` fitted it to the
+               * width and left the rest of the box empty — 230px of it on the
+               * centre jar — and `object-bottom` stacked every one of those
+               * pixels above the jars as a band of blank beige. Matching the
+               * box to the artwork means there is nothing left over to show.
+               */
+              className={`relative aspect-[847/1495] ${isCentre ? "w-[36%]" : "w-[30%]"}`}
               style={{
                 zIndex: isCentre ? 2 : 1,
                 transform: reduced
