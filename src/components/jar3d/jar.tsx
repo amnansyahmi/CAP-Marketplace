@@ -87,7 +87,6 @@ export function Jar({
 
   // Only bother once it is close to being seen.
   useEffect(() => {
-    if (reduced) return;
     const node = host.current;
     if (!node) return;
 
@@ -105,10 +104,10 @@ export function Jar({
 
     observer.observe(node);
     return () => observer.disconnect();
-  }, [reduced]);
+  }, []);
 
   useEffect(() => {
-    if (!near || reduced || tooSlow) return;
+    if (!near || tooSlow) return;
     // Too small to be worth the download.
     if ((host.current?.clientWidth ?? 0) < minWidth) return;
     if (!canRenderWebGL()) return;
@@ -117,7 +116,7 @@ export function Jar({
     // competing for the main thread.
     const timer = setTimeout(() => setReady(true), 80);
     return () => clearTimeout(timer);
-  }, [near, reduced, minWidth, tooSlow]);
+  }, [near, minWidth, tooSlow]);
 
   return (
     // Always `relative`, because the photograph inside uses `fill` and needs a
@@ -142,8 +141,10 @@ export function Jar({
           productId={productId}
           image={wrap}
           alt={alt}
-          drift={drift}
-          sway={sway}
+          // Reduced motion silences everything the jar does by itself. It can
+          // still be turned by hand, because that is the visitor's own doing.
+          drift={reduced ? 0 : drift}
+          sway={reduced ? 0 : sway}
           className="absolute inset-0 animate-[fadeIn_.7s_ease-out_both]"
         />
       )}

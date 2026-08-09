@@ -56,11 +56,20 @@ export function Showpiece({
   const open = useRef(0);
   const reduced = useReducedMotion();
   const capable = useCanRenderWebGL();
-  const started = capable && !reduced;
-  const tooSlow = useTooSlow(started);
+  const tooSlow = useTooSlow(capable);
   // `tooSlow` has to be able to take a running canvas away again, not only stop
   // one from starting: the trouble is invisible until it is already rendering.
-  const ready = started && !tooSlow;
+  const ready = capable && !tooSlow;
+
+  /**
+   * Whether the lid actually moves.
+   *
+   * Reduced motion does not mean no jar — it means no *autonomous* motion. The
+   * model still loads and can still be turned by hand, because a drag is
+   * something the visitor asked for. What stops is everything that moves on its
+   * own: the rocking, and the lid unscrewing itself as the page scrolls past.
+   */
+  const animates = ready && !reduced;
 
   /**
    * How far through the section we are, as the lid's position.
@@ -71,7 +80,7 @@ export function Showpiece({
    */
   useEffect(() => {
     const node = section.current;
-    if (!node) return;
+    if (!node || !animates) return;
 
     const update = () => {
       const rect = node.getBoundingClientRect();
@@ -91,21 +100,28 @@ export function Showpiece({
       window.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
     };
-  }, []);
+  }, [animates]);
 
   return (
     <section
       ref={section}
       aria-label={`${name}, opened`}
-      // Two extra screens of travel: enough that the unscrewing reads as a
-      // deliberate motion rather than a flicker, without holding the visitor
-      // hostage on the way to the rest of the page.
-      className="relative h-[280vh]"
+      /**
+       * Two extra screens of travel, so the unscrewing reads as a deliberate
+       * motion rather than a flicker.
+       *
+       * Collapsed by CSS rather than by JavaScript when the visitor has asked
+       * for less motion: there is nothing to scrub through, and holding them on
+       * a motionless jar for three screens would be worse than not having it.
+       * A media query settles this before the first paint, where reading the
+       * preference in React would render the tall version and then jump.
+       */
+      className="relative h-[280vh] motion-reduce:h-auto"
       style={{ backgroundColor: `${accent}0a` }}
     >
       {/* `pt` clears the sticky site header, which would otherwise sit over the
           top of the jar exactly when the lid rises into it. */}
-      <div className="sticky top-0 flex h-screen items-center overflow-hidden pt-[4.5rem] md:pt-0">
+      <div className="sticky top-0 flex h-screen items-center overflow-hidden pt-[4.5rem] motion-reduce:static motion-reduce:h-auto motion-reduce:py-20 md:pt-0">
         <div className="mx-auto grid w-full max-w-6xl gap-5 px-6 md:gap-8 md:grid-cols-2 md:items-center">
           <div className="order-2 md:order-1">
             <p className="font-serif text-3xl leading-none text-foreground/15 md:text-7xl" aria-hidden>
@@ -114,7 +130,7 @@ export function Showpiece({
             <h2 className="mt-2 font-serif text-3xl leading-[1.05] md:mt-4 md:text-6xl">{name}</h2>
             <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground md:mt-5 md:text-lg md:leading-7">{blurb}</p>
             <p className="mt-5 text-[11px] md:mt-8 font-semibold uppercase tracking-[.2em] text-foreground/40">
-              {ready ? "Keep scrolling" : "350g jar"}
+              {animates ? "Keep scrolling" : "350g jar"}
             </p>
           </div>
 
