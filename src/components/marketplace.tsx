@@ -13,6 +13,7 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Marquee } from "@/components/marquee";
 import { Jar } from "@/components/jar3d/jar";
+import { Showpiece } from "@/components/jar3d/showpiece";
 import { HeroJars } from "@/components/motion/hero-jars";
 import { Reveal } from "@/components/motion/reveal";
 import { Button } from "@/components/ui/button";
@@ -64,7 +65,13 @@ export default function Marketplace() {
   const addToBag = useAddToBag();
 
   return (
-    <div className="min-h-screen overflow-hidden bg-background text-foreground">
+    // `overflow-x-clip`, not `overflow-hidden`. Both stop the decorative pieces
+    // that reach past the edge from making the page scroll sideways, but
+    // `hidden` also turns this into a scroll container, and a scroll container
+    // is what `position: sticky` sticks to. With `hidden` here the pinned jar
+    // in the showpiece scrolled straight past instead of holding still. `clip`
+    // does the same job without becoming a container.
+    <div className="min-h-screen overflow-x-clip bg-background text-foreground">
       <SiteHeader />
       <main id="main-content" tabIndex={-1} className="outline-none">
         <Hero />
@@ -73,6 +80,7 @@ export default function Marketplace() {
         />
         <Promises />
         <Collection onAdd={addToBag} onQuickView={setQuickView} />
+        <OpenTheJar />
         <Statement />
         <Story />
         <Guide />
@@ -337,6 +345,28 @@ function QuickViewDialog({
  * message. It exists to break the rhythm between the shop and the story so the
  * page has a peak rather than a flat line.
  */
+/**
+ * The jar, opened.
+ *
+ * Placed straight after the collection: by this point the visitor has seen what
+ * is for sale, and this is the moment to show them what is inside one. Kabsah
+ * is the lead product, so it is the one that opens.
+ */
+function OpenTheJar() {
+  const product = products[0];
+  return (
+    <Showpiece
+      productId={product.id}
+      image={product.image}
+      wrap={product.wrap}
+      name={product.name}
+      arabic={product.arabic}
+      accent={product.accent}
+      blurb={product.description}
+    />
+  );
+}
+
 function Statement() {
   return (
     <section className="relative overflow-hidden border-y border-black/40 bg-[#1b1a16] text-[#f5f0e7]">

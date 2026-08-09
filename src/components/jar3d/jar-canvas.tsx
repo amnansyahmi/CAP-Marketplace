@@ -50,6 +50,8 @@ export function JarCanvas({
   drift = 0,
   /** Radians of gentle rocking either side of the current angle. */
   sway = 0,
+  /** How far the lid is off, 0 to 1. A ref so scrolling never re-renders. */
+  open,
   className,
 }: {
   productId: string;
@@ -57,6 +59,7 @@ export function JarCanvas({
   alt: string;
   drift?: number;
   sway?: number;
+  open?: React.RefObject<number>;
   className?: string;
 }) {
   const spin = useRef(0);
@@ -115,6 +118,33 @@ export function JarCanvas({
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, [animates, visible]);
+
+  /**
+   * Frames while the lid is being scrolled.
+   *
+   * `open` changes from a scroll listener, which React never sees, so nothing
+   * would otherwise ask for a redraw. Watching the value and asking only when
+   * it has actually moved means a still page renders nothing at all, and a
+   * scrolling one renders exactly as often as it needs to.
+   */
+  useEffect(() => {
+    if (!open || !visible) return;
+
+    let frame = 0;
+    let last = Number.NaN;
+
+    const tick = () => {
+      const value = open.current ?? 0;
+      if (!(Math.abs(value - last) < 0.0005)) {
+        last = value;
+        invalidate.current();
+      }
+      frame = requestAnimationFrame(tick);
+    };
+
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [open, visible]);
 
   const onPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     dragging.current = true;
@@ -210,7 +240,14 @@ export function JarCanvas({
         {/* useLoader suspends while the texture downloads. Without a boundary
             inside the Canvas, R3F renders an empty scene and never recovers. */}
         <Suspense fallback={null}>
-          <JarMesh productId={productId} image={image} spin={spin} autoSpin={drift} sway={sway} />
+          <JarMesh
+            productId={productId}
+            image={image}
+            spin={spin}
+            autoSpin={drift}
+            sway={sway}
+            open={open}
+          />
         </Suspense>
       </Canvas>
     </div>

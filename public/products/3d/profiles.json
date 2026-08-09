@@ -386,7 +386,9 @@
         "r": 0.0933
       }
     ],
-    "aspect": 1.7811
+    "aspect": 1.7811,
+    "capSplit": 0.1368,
+    "paste": "#a25139"
   },
   "mandy": {
     "points": [
@@ -775,7 +777,9 @@
         "r": 0.1097
       }
     ],
-    "aspect": 1.7795
+    "aspect": 1.7795,
+    "capSplit": 0.1368,
+    "paste": "#9a5039"
   },
   "briyani": {
     "points": [
@@ -1164,6 +1168,8 @@
         "r": 0.0935
       }
     ],
-    "aspect": 1.7902
+    "aspect": 1.7902,
+    "capSplit": 0.1368,
+    "paste": "#995238"
   }
 }

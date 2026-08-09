@@ -4,10 +4,13 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useLoader, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 
+import { Splash } from "@/components/jar3d/splash";
+
 import profiles from "@/../public/products/3d/profiles.json";
+import parts from "@/../public/products/3d/parts.json";
 
 /**
- * The jar as real geometry.
+ * The jar as real geometry, in two pieces that come apart.
  *
  * ## Why a lathe rather than a cylinder
  *
@@ -15,6 +18,14 @@ import profiles from "@/../public/products/3d/profiles.json";
  * the cap flare, the shoulder and the slight taper at the base are the real
  * ones. A plain cylinder would read as a tin can, and the shoulder is most of
  * what makes a jar look like a jar.
+ *
+ * ## Why two pieces
+ *
+ * The lid has to lift off. The seam is not a guess: the glass steps sharply
+ * inward where the metal cap ends, and `capSplit` in profiles.json is the
+ * measured position of that step. Cutting there means the lid separates along
+ * the join a person would unscrew, and the threads underneath are revealed
+ * because they are genuinely part of the body's silhouette.
  *
  * ## Why the material is unlit
  *
@@ -28,16 +39,18 @@ import profiles from "@/../public/products/3d/profiles.json";
  * light would be. Both are computed against the view direction, so they stay
  * put while the jar turns underneath them. That is what sells it as a solid
  * object rather than a picture on a tube.
- *
- * The honest limitation: the highlight *photographed into* the texture does
- * rotate with the jar. Nothing can be done about that without relighting the
- * shot, and at any reasonable turn speed it reads as reflection rather than
- * error.
  */
 
-type Profile = { points: { t: number; r: number }[]; aspect: number };
+type Profile = {
+  points: { t: number; r: number }[];
+  aspect: number;
+  capSplit: number;
+  /** Sampled from the band of jar between the cap and the label. */
+  paste: string;
+};
 
 const PROFILES = profiles as Record<string, Profile>;
+const { capTopFill } = parts;
 
 /** Segments round the jar. Enough that the silhouette has no visible facets. */
 const RADIAL_SEGMENTS = 96;
@@ -87,12 +100,51 @@ const fragmentShader = /* glsl */ `
   }
 `;
 
+/**
+ * Lathes one slice of the profile.
+ *
+ * `t` runs 0 at the top of the jar to 1 at the bottom, matching how the
+ * silhouette was measured in image space.
+ *
+ * The UVs are rewritten from each vertex's height rather than left as the
+ * lathe's own 0-to-1. Both pieces share one wrapped texture, so a slice has to
+ * sample the part of it that belongs to that height — otherwise the lid would
+ * stretch the whole label across the cap.
+ */
+function sliceGeometry(profile: Profile, fromT: number, toT: number, height: number, closeTop: boolean, closeBottom: boolean) {
+  const points: THREE.Vector2[] = [];
+  const yOf = (t: number) => (1 - t) * height;
+
+  const within = profile.points.filter((p) => p.t >= fromT && p.t <= toT);
+  const ordered = [...within].reverse(); // lathe runs bottom to top
+
+  if (closeBottom) points.push(new THREE.Vector2(0.0001, yOf(toT)));
+  for (const point of ordered) points.push(new THREE.Vector2(Math.max(0.0001, point.r), yOf(point.t)));
+  if (closeTop) points.push(new THREE.Vector2(0.0001, yOf(fromT)));
+
+  const lathe = new THREE.LatheGeometry(points, RADIAL_SEGMENTS);
+
+  const position = lathe.getAttribute("position");
+  const uv = lathe.getAttribute("uv");
+  for (let i = 0; i < position.count; i++) {
+    // v = 0 at the bottom of the whole jar, 1 at the top, so every slice lines
+    // up with the same texture.
+    uv.setY(i, position.getY(i) / height);
+  }
+  uv.needsUpdate = true;
+
+  // Centred on the jar's middle, so the assembled jar turns about its own axis.
+  lathe.translate(0, -height / 2, 0);
+  return lathe;
+}
+
 export function JarMesh({
   productId,
   image,
   spin,
   autoSpin,
   sway,
+  open,
 }: {
   productId: string;
   /** The unwrapped 360° texture. */
@@ -109,51 +161,80 @@ export function JarMesh({
    */
   autoSpin: number;
   sway?: number;
+  /**
+   * How far the lid is off, 0 to 1.
+   *
+   * Read every frame from a ref rather than taken as a prop value, because it is
+   * driven by scrolling and React must not re-render for it.
+   */
+  open?: React.RefObject<number>;
 }) {
-  const mesh = useRef<THREE.Mesh>(null);
+  const group = useRef<THREE.Group>(null);
+  const lid = useRef<THREE.Group>(null);
   const texture = useLoader(THREE.TextureLoader, image);
+  const capTop = useLoader(THREE.TextureLoader, "/products/3d/cap-top.webp");
   const camera = useThree((state) => state.camera) as THREE.PerspectiveCamera;
   const size = useThree((state) => state.size);
   // On a still jar the frame loop is on demand, so anything that changes what
   // the picture should look like has to ask for a new one.
   const invalidate = useThree((state) => state.invalidate);
 
+  const profile = PROFILES[productId] ?? Object.values(PROFILES)[0];
+
+  // `aspect` is height ÷ *diameter*, but radii here are normalised so the
+  // widest point is 1 — a diameter of 2. Multiplying by 2 keeps the jar's real
+  // proportions; without it the jar comes out half as tall as it should be and
+  // reads as a squat pot.
+  const height = profile.aspect * 2;
+
   const geometry = useMemo(() => {
-    const profile = PROFILES[productId] ?? Object.values(PROFILES)[0];
+    const split = profile.capSplit;
+    return {
+      // The lid is open underneath: you are meant to see up into it once it
+      // lifts, and closing it would put a false disc where the liner sits.
+      lid: sliceGeometry(profile, 0, split, height, false, false),
+      body: sliceGeometry(profile, split, 1, height, false, true),
+    };
+  }, [profile, height]);
 
-    // Lathe points run bottom to top in the geometry, but the profile was
-    // measured top to bottom in image space, so it is reversed here.
-    const points: THREE.Vector2[] = [];
-    const ordered = [...profile.points].reverse();
+  /** Where the lid sits when closed, and how wide its top is. */
+  const lidTop = useMemo(() => {
+    const radiusAtSplit = profile.points.find((p) => p.t >= profile.capSplit)?.r ?? 0.9;
+    const capRadius = Math.max(...profile.points.filter((p) => p.t <= profile.capSplit).map((p) => p.r));
+    return { y: height / 2, radius: capRadius, neck: radiusAtSplit };
+  }, [profile, height]);
 
-    // Close the base, so the jar is a solid rather than an open tube.
-    points.push(new THREE.Vector2(0.0001, 0));
-
-    // `aspect` is height ÷ *diameter*, but radii here are normalised so the
-    // widest point is 1 — a diameter of 2. Multiplying by 2 keeps the jar's
-    // real proportions; without it the jar comes out half as tall as it should
-    // be and reads as a squat pot.
-    const height = profile.aspect * 2;
-
-    for (const point of ordered) {
-      points.push(new THREE.Vector2(Math.max(0.0001, point.r), (1 - point.t) * height));
+  const capTopGeometry = useMemo(() => {
+    const disc = new THREE.CircleGeometry(lidTop.radius, RADIAL_SEGMENTS);
+    // The photograph shows the whole jar from above, so the gold only fills the
+    // middle `capTopFill` of it. Squeeze the UVs outward by that factor and the
+    // disc is all cap, with none of the glass ring around it.
+    const uv = disc.getAttribute("uv");
+    for (let i = 0; i < uv.count; i++) {
+      uv.setXY(i, 0.5 + (uv.getX(i) - 0.5) * capTopFill, 0.5 + (uv.getY(i) - 0.5) * capTopFill);
     }
+    uv.needsUpdate = true;
+    disc.rotateX(-Math.PI / 2);
+    return disc;
+  }, [lidTop.radius]);
 
-    // And close the lid.
-    points.push(new THREE.Vector2(0.0001, height));
+  /**
+   * How far the lid travels when fully open.
+   *
+   * Enough to clear the thread and read as "off", not so far that the jar has
+   * to be drawn small to keep it in shot. Zero when nothing is driving it, so a
+   * jar that never opens is framed as tightly as it always was.
+   */
+  const lift = open ? height * 0.45 : 0;
 
-    const lathe = new THREE.LatheGeometry(points, RADIAL_SEGMENTS);
-    // Centre it so it turns about its own middle rather than its base.
-    lathe.translate(0, -height / 2, 0);
-    return lathe;
-  }, [productId]);
-
-  /** How much space the jar needs, in world units. */
-  const extent = useMemo(() => {
-    const profile = PROFILES[productId] ?? Object.values(PROFILES)[0];
-    // Diameter is 2 because radii are normalised to a maximum of 1.
-    return { width: 2, height: profile.aspect * 2 };
-  }, [productId]);
+  /**
+   * How much space the whole assembly needs, in world units.
+   *
+   * The lid leaves the jar's own bounding box on the way up, so the frame has
+   * to allow for its travel or it simply flies out of shot — which is exactly
+   * what the first version did.
+   */
+  const extent = useMemo(() => ({ width: 2, height: height + lift }), [height, lift]);
 
   const material = useMemo(() => {
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -166,8 +247,8 @@ export function JarMesh({
       vertexShader,
       fragmentShader,
       transparent: true,
-      // Both faces, because the closing points at r≈0 leave a pinhole at each
-      // end that would otherwise show the inside of the jar.
+      // Both faces, because a slice is an open tube — without this you can see
+      // straight through the jar from the side where it closes.
       side: THREE.DoubleSide,
       uniforms: {
         map: { value: texture },
@@ -177,6 +258,24 @@ export function JarMesh({
     });
   }, [texture]);
 
+  const capMaterial = useMemo(() => {
+    capTop.colorSpace = THREE.SRGBColorSpace;
+    capTop.anisotropy = 8;
+    return new THREE.ShaderMaterial({
+      vertexShader,
+      fragmentShader,
+      transparent: true,
+      side: THREE.DoubleSide,
+      uniforms: {
+        map: { value: capTop },
+        // Flatter than the body: this face is a disc, not a curve, so limb
+        // darkening across it would just look like dirt.
+        uLimb: { value: 0.12 },
+        uSheen: { value: 0.04 },
+      },
+    });
+  }, [capTop]);
+
   /**
    * Pull the camera back far enough that the whole jar fits.
    *
@@ -184,13 +283,15 @@ export function JarMesh({
    * narrow box — three jars side by side on a phone, say — sees a viewport
    * narrower than the jar is wide, and the sides are simply cut off. Fitting to
    * whichever dimension is tighter is the 3D equivalent of `object-contain`.
+   *
+   * The margin is generous at the top because the lid travels upward out of the
+   * jar's own bounding box when it opens.
    */
   useEffect(() => {
     if (!camera.isPerspectiveCamera) return;
     const aspect = Math.max(0.0001, size.width / size.height);
     const halfFov = (camera.fov * Math.PI) / 360;
 
-    // A little air, so the jar never touches the edge of its box.
     const margin = 1.12;
     const forHeight = (extent.height * margin) / (2 * Math.tan(halfFov));
     const forWidth = (extent.width * margin) / (2 * Math.tan(halfFov) * aspect);
@@ -204,12 +305,12 @@ export function JarMesh({
   // runs once it is genuinely ready to be drawn.
   useEffect(() => {
     invalidate();
-  }, [texture, material, geometry, invalidate]);
+  }, [texture, capTop, material, geometry, invalidate]);
 
   const elapsed = useRef(0);
 
   useFrame((_, delta) => {
-    if (!mesh.current) return;
+    if (!group.current) return;
     elapsed.current += delta;
     spin.current += autoSpin * delta;
 
@@ -219,8 +320,38 @@ export function JarMesh({
 
     // π offset because the texture puts the front of the label at u = 0.5,
     // while the lathe starts its sweep at u = 0.
-    mesh.current.rotation.y = spin.current + rock + Math.PI;
+    group.current.rotation.y = spin.current + rock + Math.PI;
+
+    if (lid.current) {
+      const amount = open?.current ?? 0;
+      // Rises, and unscrews as it goes. Two and a bit turns is what this cap
+      // actually takes, and turning it the other way looks like tightening.
+      lid.current.position.y = amount * lift;
+      lid.current.rotation.y = -amount * Math.PI * 2.2;
+      // Tips very slightly as it clears the thread, so it reads as a lid coming
+      // free rather than a disc on a rail.
+      lid.current.rotation.z = amount * 0.09;
+    }
   });
 
-  return <mesh ref={mesh} geometry={geometry} material={material} />;
+  return (
+    // Sat low enough in the frame that the headroom reserved above it is where
+    // the lid and the splash actually go. Fixed rather than animated, so the
+    // composition never jumps while somebody is scrolling through it.
+    <group ref={group} position={[0, -lift / 2, 0]}>
+      <mesh geometry={geometry.body} material={material} />
+      {open && (
+        <Splash
+          progress={open}
+          mouthRadius={lidTop.neck}
+          mouthHeight={height / 2 - height * profile.capSplit}
+          colour={profile.paste}
+        />
+      )}
+      <group ref={lid}>
+        <mesh geometry={geometry.lid} material={material} />
+        <mesh geometry={capTopGeometry} material={capMaterial} position={[0, lidTop.y, 0]} />
+      </group>
+    </group>
+  );
 }

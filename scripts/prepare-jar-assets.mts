@@ -22,7 +22,7 @@
  * Run with: npm run assets
  */
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import sharp from "sharp";
@@ -118,10 +118,59 @@ async function extract(name: string, out: string, pad = 2) {
   return { width, height };
 }
 
+/**
+ * How much of a top-down photograph the metal cap actually fills.
+ *
+ * The shot looks straight down the whole jar, so its outer edge is the jar at
+ * its widest — but the gold disc is narrower than that, with a ring of glass
+ * shoulder around it. Mapping the whole image onto the lid's top would paint
+ * that brown ring onto the cap.
+ *
+ * Measured rather than eyeballed: walk outward from the centre averaging a ring
+ * of samples at each radius, and take the point where the gold gives way to the
+ * dark glass. Re-shoot the cap and this number follows.
+ */
+async function capFill(file: string) {
+  const { data, info } = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const cx = info.width / 2;
+  const cy = info.height / 2;
+  const radius = Math.min(cx, cy);
+
+  const brightnessAt = (fraction: number) => {
+    let sum = 0;
+    let n = 0;
+    for (let k = 0; k < 96; k++) {
+      const angle = (k / 96) * Math.PI * 2;
+      const x = Math.round(cx + Math.cos(angle) * radius * fraction);
+      const y = Math.round(cy + Math.sin(angle) * radius * fraction);
+      const i = (Math.min(info.height - 1, Math.max(0, y)) * info.width + Math.min(info.width - 1, Math.max(0, x))) * info.channels;
+      sum += (data[i] + data[i + 1] + data[i + 2]) / 3;
+      n += 1;
+    }
+    return sum / n;
+  };
+
+  // The gold sits around 145 and the glass ring below 115, so the midpoint is a
+  // wide, safe place to put the boundary.
+  const CUTOFF = 128;
+  let fill = 1;
+  for (let f = 0.5; f <= 1; f += 0.005) {
+    if (brightnessAt(f) < CUTOFF) {
+      fill = Number((f - 0.005).toFixed(3));
+      break;
+    }
+  }
+  return fill;
+}
+
 mkdirSync(OUT, { recursive: true });
 
 await extract("jar-blank", "jar-blank");
 await extract("cap-top", "cap-top");
 await extract("jar-base", "jar-base");
 
+const parts = { capTopFill: await capFill(resolve(OUT, "cap-top.webp")) };
+writeFileSync(resolve(OUT, "parts.json"), `${JSON.stringify(parts, null, 2)}\n`);
+
+console.log(`  · cap fills ${Math.round(parts.capTopFill * 100)}% of its photograph`);
 console.log(`\n  Wrote transparent art to public/products/3d\n`);

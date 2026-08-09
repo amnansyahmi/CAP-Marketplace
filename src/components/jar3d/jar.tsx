@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 
+import { canRenderWebGL, useTooSlow } from "@/components/jar3d/capability";
 import { useReducedMotion } from "@/lib/use-reduced-motion";
 
 /**
@@ -27,53 +28,6 @@ import { useReducedMotion } from "@/lib/use-reduced-motion";
 const JarCanvas = dynamic(() => import("@/components/jar3d/jar-canvas").then((m) => m.JarCanvas), {
   ssr: false,
 });
-
-/**
- * Renderers that run on the CPU.
- *
- * A machine with no usable GPU still reports WebGL — the browser quietly hands
- * back a software rasteriser instead. It answers every question correctly and
- * then takes tens of milliseconds per frame, on the main thread, which is how a
- * page ends up showing "Page Unresponsive".
- */
-const SOFTWARE_RENDERERS = /swiftshader|llvmpipe|softpipe|software|basic render|microsoft basic/i;
-
-/** How long the WebGL context is allowed to settle before it is judged. */
-const SETTLE_MS = 1200;
-/** How long to watch for. */
-const SAMPLE_MS = 2500;
-/** Blocked for more than this fraction of the window and the 3D is dropped. */
-const MAX_BLOCKED_SHARE = 0.5;
-
-/**
- * Whether this browser can actually give us a context worth having.
- *
- * `'webgl2' in window` is not the question — plenty of devices expose the API
- * and then fail to create a context, or fall back to a software renderer that
- * turns a hero into a slideshow. So this asks for a real context *and* asks
- * what is behind it.
- */
-function canRenderWebGL(): boolean {
-  try {
-    const canvas = document.createElement("canvas");
-    const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
-    if (!gl) return false;
-
-    // What is actually doing the drawing. Some browsers mask this for
-    // fingerprinting reasons; an unknown renderer is treated as fine, because
-    // refusing everything we cannot identify would drop 3D on privacy-hardened
-    // browsers that render it perfectly well.
-    const info = gl.getExtension("WEBGL_debug_renderer_info");
-    const renderer = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL) ?? "") : "";
-
-    const lose = (gl as WebGLRenderingContext).getExtension("WEBGL_lose_context");
-    lose?.loseContext();
-
-    return !SOFTWARE_RENDERERS.test(renderer);
-  } catch {
-    return false;
-  }
-}
 
 export function Jar({
   productId,
@@ -120,7 +74,7 @@ export function Jar({
   const [near, setNear] = useState(false);
   const [ready, setReady] = useState(false);
   /** Set once the renderer has proved too slow. Never unset. */
-  const [tooSlow, setTooSlow] = useState(false);
+  const tooSlow = useTooSlow(ready);
 
   /**
    * Whether the 3D jar is on screen right now.
@@ -164,54 +118,6 @@ export function Jar({
     const timer = setTimeout(() => setReady(true), 80);
     return () => clearTimeout(timer);
   }, [near, reduced, minWidth, tooSlow]);
-
-  /**
-   * Give up if the renderer turns out to be too slow for this machine.
-   *
-   * Refusing known software renderers by name catches the common case, but it
-   * cannot know about a weak integrated GPU, a throttling laptop, or a machine
-   * that is simply busy. So rather than predict, this measures: `longtask`
-   * entries are the browser's own record of the main thread not answering, and
-   * if enough of them pile up while the jar is on screen the photograph comes
-   * back for the rest of the session.
-   *
-   * Sampling starts after a settling delay, because mounting a WebGL context is
-   * legitimately expensive once and that should not condemn it.
-   */
-  useEffect(() => {
-    if (!ready) return;
-    if (typeof PerformanceObserver === "undefined") return;
-
-    let blocked = 0;
-    let observer: PerformanceObserver | undefined;
-    let decide: ReturnType<typeof setTimeout> | undefined;
-
-    const start = setTimeout(() => {
-      try {
-        observer = new PerformanceObserver((list) => {
-          for (const entry of list.getEntries()) blocked += entry.duration;
-        });
-        observer.observe({ entryTypes: ["longtask"] });
-      } catch {
-        // Not supported here — Safari, mostly. Leaving the 3D running is no
-        // worse than having no check at all.
-        return;
-      }
-
-      // If the thread spent more than this share of the window blocked, the jar
-      // is costing more than it is worth.
-      decide = setTimeout(() => {
-        observer?.disconnect();
-        if (blocked > SAMPLE_MS * MAX_BLOCKED_SHARE) setTooSlow(true);
-      }, SAMPLE_MS);
-    }, SETTLE_MS);
-
-    return () => {
-      clearTimeout(start);
-      if (decide) clearTimeout(decide);
-      observer?.disconnect();
-    };
-  }, [ready]);
 
   return (
     // Always `relative`, because the photograph inside uses `fill` and needs a
