@@ -55,6 +55,60 @@ const { capTopFill } = parts;
 /** Segments round the jar. Enough that the silhouette has no visible facets. */
 const RADIAL_SEGMENTS = 96;
 
+/**
+ * What the jar is doing at each point through the scroll section.
+ *
+ * The reference this is modelled on plays a pre-rendered image sequence, which
+ * is why every one of its jars tumbles along an identical path. This is real
+ * geometry, so the same idea costs a list of keyframes and works from any
+ * angle — and, because the cap and the base are photographs rather than
+ * guesses, it can be turned right over without anything to hide.
+ *
+ * `x` tips the jar toward or away from the camera, `y` turns it on its own
+ * axis, `z` rolls it sideways. `open` lifts the lid.
+ */
+type Beat = { at: number; x: number; y: number; z: number; open: number };
+
+const CHOREOGRAPHY: Beat[] = [
+  // Upright and square on: the label is the first thing anybody should read.
+  { at: 0, x: 0, y: 0, z: 0, open: 0 },
+  // Tipping back, bringing the top of the cap into view.
+  { at: 0.28, x: -1, y: 0.9, z: 0.18, open: 0 },
+  // Right over. The base is toward the camera here, which is the whole reason
+  // the underside had to become a real photograph.
+  { at: 0.52, x: -Math.PI, y: Math.PI, z: -0.2, open: 0 },
+  // Still rolling, coming back up the other side.
+  { at: 0.76, x: -5.4, y: 5, z: 0.15, open: 0 },
+  // A full roll and a full turn: exactly where it started, so the sequence ends
+  // on the label rather than on the plain back of the jar. Landing on an odd
+  // half-turn was the first attempt and it finished facing backwards.
+  { at: 0.88, x: -Math.PI * 2, y: Math.PI * 2, z: 0, open: 0 },
+  // Settled and facing front before anything opens.
+  { at: 1, x: -Math.PI * 2, y: Math.PI * 2, z: 0, open: 1 },
+];
+
+/** Smoothstep, so the jar eases between poses instead of hinging between them. */
+const ease = (t: number) => t * t * (3 - 2 * t);
+
+/** Where the jar should be at a given point through the section. */
+function poseAt(progress: number): Omit<Beat, "at"> {
+  const p = Math.min(1, Math.max(0, progress));
+  let i = 0;
+  while (i < CHOREOGRAPHY.length - 2 && p > CHOREOGRAPHY[i + 1].at) i += 1;
+
+  const a = CHOREOGRAPHY[i];
+  const b = CHOREOGRAPHY[i + 1];
+  const span = Math.max(0.0001, b.at - a.at);
+  const k = ease(Math.min(1, Math.max(0, (p - a.at) / span)));
+
+  return {
+    x: a.x + (b.x - a.x) * k,
+    y: a.y + (b.y - a.y) * k,
+    z: a.z + (b.z - a.z) * k,
+    open: a.open + (b.open - a.open) * k,
+  };
+}
+
 const vertexShader = /* glsl */ `
   varying vec2 vUv;
   varying vec3 vNormalView;
@@ -144,7 +198,7 @@ export function JarMesh({
   spin,
   autoSpin,
   sway,
-  open,
+  progress,
 }: {
   productId: string;
   /** The unwrapped 360° texture. */
@@ -162,17 +216,19 @@ export function JarMesh({
   autoSpin: number;
   sway?: number;
   /**
-   * How far the lid is off, 0 to 1.
+   * How far through the scroll sequence we are, 0 to 1.
    *
    * Read every frame from a ref rather than taken as a prop value, because it is
-   * driven by scrolling and React must not re-render for it.
+   * driven by scrolling and React must not re-render for it. What the jar does
+   * at each point is `CHOREOGRAPHY`.
    */
-  open?: React.RefObject<number>;
+  progress?: React.RefObject<number>;
 }) {
   const group = useRef<THREE.Group>(null);
   const lid = useRef<THREE.Group>(null);
   const texture = useLoader(THREE.TextureLoader, image);
   const capTop = useLoader(THREE.TextureLoader, "/products/3d/cap-top.webp");
+  const jarBase = useLoader(THREE.TextureLoader, "/products/3d/jar-base.webp");
   const camera = useThree((state) => state.camera) as THREE.PerspectiveCamera;
   const size = useThree((state) => state.size);
   // On a still jar the frame loop is on demand, so anything that changes what
@@ -219,13 +275,29 @@ export function JarMesh({
   }, [lidTop.radius]);
 
   /**
+   * The underside of the jar.
+   *
+   * Never seen while the jar stands upright, which is why it did not exist
+   * before. Once the jar starts tumbling it is in shot for several seconds, and
+   * a flat disc of nothing there would be the one part of the model obviously
+   * faked — so it is the real base photograph, shot through the glass.
+   */
+  const baseGeometry = useMemo(() => {
+    const radius = profile.points[profile.points.length - 1]?.r ?? 0.9;
+    const disc = new THREE.CircleGeometry(Math.max(0.05, radius), RADIAL_SEGMENTS);
+    // Faces down, so its front side is the one you see from underneath.
+    disc.rotateX(Math.PI / 2);
+    return disc;
+  }, [profile]);
+
+  /**
    * How far the lid travels when fully open.
    *
    * Enough to clear the thread and read as "off", not so far that the jar has
    * to be drawn small to keep it in shot. Zero when nothing is driving it, so a
    * jar that never opens is framed as tightly as it always was.
    */
-  const lift = open ? height * 0.45 : 0;
+  const lift = progress ? height * 0.32 : 0;
 
   /**
    * How much space the whole assembly needs, in world units.
@@ -234,7 +306,17 @@ export function JarMesh({
    * to allow for its travel or it simply flies out of shot — which is exactly
    * what the first version did.
    */
-  const extent = useMemo(() => ({ width: 2, height: height + lift }), [height, lift]);
+  const extent = useMemo(() => {
+    // Standing still, the jar only ever needs its own footprint.
+    if (!progress) return { width: 2, height };
+
+    // Tumbling, it passes through every orientation, so the frame has to hold
+    // the sphere it sweeps out — otherwise it clips through the sides of the
+    // canvas exactly as it turns onto its side. The extra height is the lid's
+    // travel, which happens at the end with the jar upright again.
+    const sweep = 2 * Math.hypot(height / 2, 1);
+    return { width: sweep, height: Math.max(sweep, height + lift) };
+  }, [height, lift, progress]);
 
   const material = useMemo(() => {
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -257,6 +339,24 @@ export function JarMesh({
       },
     });
   }, [texture]);
+
+  const baseMaterial = useMemo(() => {
+    jarBase.colorSpace = THREE.SRGBColorSpace;
+    jarBase.anisotropy = 8;
+    return new THREE.ShaderMaterial({
+      vertexShader,
+      fragmentShader,
+      transparent: true,
+      side: THREE.DoubleSide,
+      uniforms: {
+        map: { value: jarBase },
+        // Darker than the cap: this is the bottom of the jar and it sits in its
+        // own shadow even on a lit table.
+        uLimb: { value: 0.3 },
+        uSheen: { value: 0.02 },
+      },
+    });
+  }, [jarBase]);
 
   const capMaterial = useMemo(() => {
     capTop.colorSpace = THREE.SRGBColorSpace;
@@ -305,9 +405,11 @@ export function JarMesh({
   // runs once it is genuinely ready to be drawn.
   useEffect(() => {
     invalidate();
-  }, [texture, capTop, material, geometry, invalidate]);
+  }, [texture, capTop, jarBase, material, geometry, invalidate]);
 
   const elapsed = useRef(0);
+  /** The lid's own 0-to-1, derived from the pose and handed to the splash. */
+  const openness = useRef(0);
 
   useFrame((_, delta) => {
     if (!group.current) return;
@@ -318,12 +420,20 @@ export function JarMesh({
     // dragged jar keeps the angle the visitor chose.
     const rock = sway ? Math.sin(elapsed.current * 0.55) * sway : 0;
 
+    const pose = progress ? poseAt(progress.current ?? 0) : null;
+    openness.current = pose ? pose.open : 0;
+
+    // Tipping and rolling are the sequence's to command; turning is shared with
+    // whatever the visitor has dragged.
+    group.current.rotation.x = pose ? pose.x : 0;
+    group.current.rotation.z = pose ? pose.z : 0;
+
     // π offset because the texture puts the front of the label at u = 0.5,
     // while the lathe starts its sweep at u = 0.
-    group.current.rotation.y = spin.current + rock + Math.PI;
+    group.current.rotation.y = spin.current + rock + Math.PI + (pose ? pose.y : 0);
 
     if (lid.current) {
-      const amount = open?.current ?? 0;
+      const amount = openness.current;
       // Rises, and unscrews as it goes. Two and a bit turns is what this cap
       // actually takes, and turning it the other way looks like tightening.
       lid.current.position.y = amount * lift;
@@ -340,9 +450,10 @@ export function JarMesh({
     // composition never jumps while somebody is scrolling through it.
     <group ref={group} position={[0, -lift / 2, 0]}>
       <mesh geometry={geometry.body} material={material} />
-      {open && (
+      <mesh geometry={baseGeometry} material={baseMaterial} position={[0, -height / 2, 0]} />
+      {progress && (
         <Splash
-          progress={open}
+          progress={openness}
           mouthRadius={lidTop.neck}
           mouthHeight={height / 2 - height * profile.capSplit}
           colour={profile.paste}

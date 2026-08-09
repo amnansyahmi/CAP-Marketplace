@@ -50,8 +50,8 @@ export function JarCanvas({
   drift = 0,
   /** Radians of gentle rocking either side of the current angle. */
   sway = 0,
-  /** How far the lid is off, 0 to 1. A ref so scrolling never re-renders. */
-  open,
+  /** How far through the scroll sequence, 0 to 1. A ref, so scrolling never re-renders. */
+  progress,
   className,
 }: {
   productId: string;
@@ -59,7 +59,7 @@ export function JarCanvas({
   alt: string;
   drift?: number;
   sway?: number;
-  open?: React.RefObject<number>;
+  progress?: React.RefObject<number>;
   className?: string;
 }) {
   const spin = useRef(0);
@@ -128,13 +128,13 @@ export function JarCanvas({
    * scrolling one renders exactly as often as it needs to.
    */
   useEffect(() => {
-    if (!open || !visible) return;
+    if (!progress || !visible) return;
 
     let frame = 0;
     let last = Number.NaN;
 
     const tick = () => {
-      const value = open.current ?? 0;
+      const value = progress.current ?? 0;
       if (!(Math.abs(value - last) < 0.0005)) {
         last = value;
         invalidate.current();
@@ -144,7 +144,7 @@ export function JarCanvas({
 
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [open, visible]);
+  }, [progress, visible]);
 
   const onPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     dragging.current = true;
@@ -246,7 +246,7 @@ export function JarCanvas({
             spin={spin}
             autoSpin={drift}
             sway={sway}
-            open={open}
+            progress={progress}
           />
         </Suspense>
       </Canvas>

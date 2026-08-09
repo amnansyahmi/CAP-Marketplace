@@ -357,6 +357,35 @@ function QuickViewDialog({
  */
 function OpenTheJar() {
   const product = products[0];
+
+  // Pinned to what the jar is doing at each point: the label is readable at the
+  // start, the cap and base are in shot through the middle, the lid comes off
+  // at the end. Every line is drawn from the catalogue rather than written as
+  // ad copy, so nothing here claims something about the food that the product
+  // data does not already say.
+  const beats = [
+    { from: 0, eyebrow: "The jar", lines: [product.description] },
+    {
+      from: 0.24,
+      eyebrow: "Every angle",
+      lines: [
+        `${product.tags.join(" · ")}. Turned right over, because the cap, the label and the base are all photographed rather than guessed at.`,
+      ],
+    },
+    {
+      from: 0.56,
+      eyebrow: "Serve it with",
+      lines: [product.servingSuggestions.join(" · ")],
+    },
+    {
+      from: 0.86,
+      eyebrow: "Open it",
+      lines: [
+        `${product.weightGrams}g a jar — around ${product.nutrition.energyKcal} kcal per 100g. Enough for roughly a kilo of rice or protein.`,
+      ],
+    },
+  ];
+
   return (
     <Showpiece
       productId={product.id}
@@ -366,6 +395,7 @@ function OpenTheJar() {
       arabic={product.arabic}
       accent={product.accent}
       blurb={product.description}
+      beats={beats}
     />
   );
 }
