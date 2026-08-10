@@ -69,6 +69,9 @@ const EDGE_SAMPLES = 5;
 /** Degrees either side of each seam over which the two photographs cross-fade. */
 const SEAM_BLEND_DEG = 10;
 
+/** How far below the cap join the neck photograph fades out. */
+const NECK_BLEND_T = 0.03;
+
 type Row = { centre: number; radius: number };
 type Image = Awaited<ReturnType<typeof readImage>>;
 
@@ -169,6 +172,7 @@ async function unwrap(name: string, blank: Image, blankRows: (Row | null)[]) {
   const blankExtent = extentOf(blankRows);
 
   const out = Buffer.alloc(OUT_WIDTH * OUT_HEIGHT * 4);
+  const capSplit = capSplitOf(profileFrom(rows).points);
   const usable = (USABLE_ARC_DEG * Math.PI) / 180;
   const seam = (SEAM_BLEND_DEG * Math.PI) / 180;
   /** How much of the back's 216° each degree of the blank's 144° has to cover. */
@@ -228,6 +232,67 @@ async function unwrap(name: string, blank: Image, blankRows: (Row | null)[]) {
     return front.map((v, c) => Math.min(1.4, Math.max(0.7, v / Math.max(1, back[c]))));
   })();
 
+  /**
+   * Lining the lid-off photograph up with this one.
+   *
+   * Both are the same jar, so two landmarks pin it exactly: the widest radius
+   * fixes the scale, and the base fixes the offset. On the current photographs
+   * that comes out at a scale of 1.100 with the two bases landing on the same
+   * row, which is the check that the mapping is right.
+   */
+  const maxRadiusOf = (rr: (Row | null)[]) => Math.max(...rr.filter(Boolean).map((r) => r!.radius));
+  const openExtent = extentOf(openRows);
+  const openScale = maxRadiusOf(rows) / maxRadiusOf(openRows);
+  const openMaxR = maxRadiusOf(openRows);
+
+  /** A row of the open photograph, in this photograph's rows. */
+  const openToClosed = (y: number) => last - (openExtent.last - y) * openScale;
+  const tOfClosedRow = (y: number) => (y - first) / Math.max(1, last - first);
+  /** A `t` in this photograph, in the open photograph's rows. */
+  const closedTToOpen = (tt: number) =>
+    openExtent.last - (last - (first + tt * (last - first))) / openScale;
+
+  /** Where the rim of the open jar sits, as a fraction of jar height. */
+  const rimT = Math.max(0, Math.min(capSplit, tOfClosedRow(openToClosed(openExtent.first))));
+
+  /**
+   * Exposure match for the neck, measured just below the join.
+   *
+   * Both photographs show the same shoulder there, so any difference between
+   * them at that height is the lighting of the two sessions and nothing else.
+   */
+  const neckGain = (() => {
+    const front = [0, 0, 0];
+    const back = [0, 0, 0];
+    let n = 0;
+    for (let k = 0; k <= 12; k++) {
+      const tt = capSplit + 0.005 + (k / 12) * 0.05;
+      const cy = Math.round(first + tt * (last - first));
+      const oy = Math.round(closedTToOpen(tt));
+      const a = edgeOf(img, rows, cy, first, last, 1);
+      const b = edgeOf(openJar, openRows, oy, openExtent.first, openExtent.last, 1);
+      if (!a || !b) continue;
+      for (let c = 0; c < 3; c++) {
+        front[c] += a[c];
+        back[c] += b[c];
+      }
+      n += 1;
+    }
+    if (n === 0) return [1, 1, 1];
+    return front.map((v, c) => Math.min(1.4, Math.max(0.7, v / Math.max(1, back[c]))));
+  })();
+
+  /** The neck's silhouette, in the same units as the rest of the profile. */
+  const neck: { t: number; r: number }[] = [];
+  for (let k = 0; k <= 24; k++) {
+    const tt = rimT + (k / 24) * (capSplit - rimT);
+    const row = rowNear(openRows, Math.round(closedTToOpen(tt)));
+    if (row) neck.push({ t: Number(tt.toFixed(4)), r: Number((row.radius / openMaxR).toFixed(4)) });
+  }
+  // The topmost scanline clips the antialiased rim and reports a radius of
+  // about 0.23 where the neck is really 0.83 — the same artefact the base has.
+  while (neck.length > 1 && neck[0].r < 0.5) neck.shift();
+
   for (let oy = 0; oy < OUT_HEIGHT; oy++) {
     const t = oy / (OUT_HEIGHT - 1);
 
@@ -266,6 +331,31 @@ async function unwrap(name: string, blank: Image, blankRows: (Row | null)[]) {
         return [rgba[0] * gain[0], rgba[1] * gain[1], rgba[2] * gain[2], rgba[3]];
       };
 
+      /**
+       * The lid-off photograph, for the band the cap normally hides.
+       *
+       * Wrapped the whole way round, not just across the front. The neck is
+       * glass and thread — near enough rotationally symmetric that continuing
+       * it round the back is honest, and leaving the back alone would have left
+       * cap ribbing printed on the neck every time the jar turned.
+       */
+      const neckSample = () => {
+        const oy2 = Math.min(openExtent.last, Math.max(openExtent.first, Math.round(closedTToOpen(t))));
+        const row2 = rowNear(openRows, oy2);
+        if (!row2) return null;
+
+        // Front arc straight; behind it, the same stretch used for the label.
+        let angle = theta;
+        if (Math.abs(theta) > usable) {
+          const psi = theta >= 0 ? theta - usable : theta + 2 * Math.PI - usable;
+          angle = usable - (psi / backSpan) * (2 * usable);
+        }
+
+        const sx = row2.centre + row2.radius * Math.sin(angle);
+        const rgba = [0, 1, 2, 3].map((c) => sample(openJar, sx, oy2, c));
+        return [rgba[0] * neckGain[0], rgba[1] * neckGain[1], rgba[2] * neckGain[2], rgba[3]];
+      };
+
       const absTheta = Math.abs(theta);
       let rgba: number[];
 
@@ -282,6 +372,17 @@ async function unwrap(name: string, blank: Image, blankRows: (Row | null)[]) {
         rgba = b ? a.map((v, c) => v * (1 - smooth) + b[c] * smooth) : a;
       }
 
+      // The neck replaces whatever the capped photograph had at this height,
+      // fading in over a short band so the join is not a line.
+      if (t >= rimT && t <= capSplit + NECK_BLEND_T) {
+        const neckPixel = neckSample();
+        if (neckPixel) {
+          const over = Math.max(0, t - capSplit) / NECK_BLEND_T;
+          const mix = 1 - over * over * (3 - 2 * over);
+          rgba = rgba.map((v, c) => v * (1 - mix) + neckPixel[c] * mix);
+        }
+      }
+
       for (let c = 0; c < 4; c++) out[o + c] = Math.max(0, Math.min(255, Math.round(rgba[c])));
     }
   }
@@ -291,7 +392,7 @@ async function unwrap(name: string, blank: Image, blankRows: (Row | null)[]) {
     .webp({ quality: 86 })
     .toFile(resolve(OUT, `${name}-wrap.webp`));
 
-  return { ...profileFrom(rows), paste: pasteColour(out) };
+  return { ...profileFrom(rows), paste: pasteColour(out), rimT: Number(rimT.toFixed(4)), neck };
 }
 
 /**
@@ -337,6 +438,43 @@ function pasteColour(texture: Buffer) {
     .join("");
   return `#${hex}`;
 }
+
+/**
+ * The jar with its lid off.
+ *
+ * Every other photograph has the cap screwed on, so the threaded neck and the
+ * rim have never existed in the model — the body simply stopped at the
+ * shoulder, and lifting the lid revealed a jar with no neck.
+ *
+ * Only the band *above the label* is taken from this shot. The photograph is of
+ * the Kabsah jar, and its label is Kabsah's; the neck is glass, thread and the
+ * paste at the mouth, which is the same jar for all three products.
+ */
+const openJar = await readImage(resolve(OUT, "jar-open.webp"));
+const openRowsAll = measureRows(openJar);
+
+/**
+ * Where the floating lid ends and the jar begins.
+ *
+ * The two are separate objects in one frame with clear air between them, so the
+ * split is simply the widest empty band of rows.
+ */
+const openBodyTop = (() => {
+  let best = { start: 0, end: 0 };
+  let start: number | null = null;
+  for (let y = 0; y < openRowsAll.length; y++) {
+    if (!openRowsAll[y]) {
+      if (start === null) start = y;
+    } else if (start !== null) {
+      if (y - start > best.end - best.start) best = { start, end: y - 1 };
+      start = null;
+    }
+  }
+  return best.end + 1;
+})();
+
+/** Only the jar, with the lid's rows discarded. */
+const openRows = openRowsAll.map((row, y) => (y >= openBodyTop ? row : null));
 
 const blank = await readImage(resolve(OUT, "jar-blank.webp"));
 const blankRows = measureRows(blank);

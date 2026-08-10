@@ -41,12 +41,18 @@ import parts from "@/../public/products/3d/parts.json";
  * object rather than a picture on a tube.
  */
 
+type Point = { t: number; r: number };
+
 type Profile = {
-  points: { t: number; r: number }[];
+  points: Point[];
   aspect: number;
   capSplit: number;
   /** Sampled from the band of jar between the cap and the label. */
   paste: string;
+  /** Where the rim of the open jar sits, above the cap join. */
+  rimT: number;
+  /** The threaded neck, measured from the lid-off photograph. */
+  neck: Point[];
 };
 
 const PROFILES = profiles as Record<string, Profile>;
@@ -165,16 +171,16 @@ const fragmentShader = /* glsl */ `
  * sample the part of it that belongs to that height — otherwise the lid would
  * stretch the whole label across the cap.
  */
-function sliceGeometry(profile: Profile, fromT: number, toT: number, height: number, closeTop: boolean, closeBottom: boolean) {
+function latheFrom(source: Point[], height: number, closeTop: boolean, closeBottom: boolean) {
   const points: THREE.Vector2[] = [];
   const yOf = (t: number) => (1 - t) * height;
 
-  const within = profile.points.filter((p) => p.t >= fromT && p.t <= toT);
+  const within = [...source].sort((a, b) => a.t - b.t);
   const ordered = [...within].reverse(); // lathe runs bottom to top
 
-  if (closeBottom) points.push(new THREE.Vector2(0.0001, yOf(toT)));
+  if (closeBottom) points.push(new THREE.Vector2(0.0001, yOf(within[within.length - 1].t)));
   for (const point of ordered) points.push(new THREE.Vector2(Math.max(0.0001, point.r), yOf(point.t)));
-  if (closeTop) points.push(new THREE.Vector2(0.0001, yOf(fromT)));
+  if (closeTop) points.push(new THREE.Vector2(0.0001, yOf(within[0].t)));
 
   const lathe = new THREE.LatheGeometry(points, RADIAL_SEGMENTS);
 
@@ -262,9 +268,21 @@ export function JarMesh({
     return {
       // The lid is open underneath: you are meant to see up into it once it
       // lifts, and closing it would put a false disc where the liner sits.
-      lid: sliceGeometry(profile, 0, split, height, false, false),
-      // Open at the bottom too — the base disc caps it, at the right diameter.
-      body: sliceGeometry(profile, split, baseT, height, false, false),
+      lid: latheFrom(profile.points.filter((p) => p.t <= split), height, false, false),
+      /**
+       * The body, now including the threaded neck.
+       *
+       * The neck comes from the lid-off photograph and reaches *above* the cap
+       * join, because that is where it really is — the cap screws down over it.
+       * Every earlier version stopped at the shoulder, so lifting the lid
+       * revealed a jar with no neck and no rim to have been sealed.
+       */
+      body: latheFrom(
+        [...profile.neck, ...profile.points.filter((p) => p.t > split && p.t <= baseT)],
+        height,
+        false,
+        false,
+      ),
     };
   }, [profile, height, baseT]);
 
@@ -488,7 +506,7 @@ export function JarMesh({
         <Splash
           progress={openness}
           mouthRadius={lidTop.neck}
-          mouthHeight={height / 2 - height * profile.capSplit}
+          mouthHeight={height / 2 - height * profile.rimT}
           colour={profile.paste}
         />
       )}
