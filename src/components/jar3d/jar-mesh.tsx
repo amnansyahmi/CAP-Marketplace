@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useLoader, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 
-import { Splash } from "@/components/jar3d/splash";
+import { Crown } from "@/components/jar3d/crown";
 
 import profiles from "@/../public/products/3d/profiles.json";
 import parts from "@/../public/products/3d/parts.json";
@@ -503,11 +503,10 @@ export function JarMesh({
       <mesh geometry={geometry.body} material={material} />
       <mesh geometry={base.geometry} material={baseMaterial} position={[0, base.y, 0]} />
       {progress && (
-        <Splash
+        <Crown
           progress={openness}
           mouthRadius={lidTop.neck}
           mouthHeight={height / 2 - height * profile.rimT}
-          colour={profile.paste}
         />
       )}
       <group ref={lid}>
