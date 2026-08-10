@@ -133,6 +133,17 @@ const fragmentShader = /* glsl */ `
   uniform sampler2D map;
   uniform float uLimb;
   uniform float uSheen;
+  /**
+   * How much to darken faces we are seeing from behind.
+   *
+   * Every part of the jar is a single-sided surface drawn from both sides, so
+   * the back of the cap's top face is the *inside* of the cap and the back of
+   * the body is the inside of the glass. Painting the photograph on both sides
+   * puts a lit gold lid on the underside of the cap, which from below — where
+   * the camera sits relative to the top of an upright jar — is the brightest
+   * thing on screen and completely wrong.
+   */
+  uniform float uBackDark;
 
   varying vec2 vUv;
   varying vec3 vNormalView;
@@ -154,6 +165,9 @@ const fragmentShader = /* glsl */ `
     float sheen = pow(clamp(dot(normalize(vNormalView), normalize(vec3(-0.55, 0.35, 0.75))), 0.0, 1.0), 6.0);
 
     vec3 colour = texel.rgb * shade + sheen * uSheen;
+
+    // Interior surfaces keep the material's colour but lose the light.
+    if (!gl_FrontFacing) colour *= (1.0 - uBackDark);
 
     gl_FragColor = vec4(colour, texel.a);
     #include <colorspace_fragment>
@@ -263,12 +277,33 @@ export function JarMesh({
     return solid.length ? solid[solid.length - 1].t : 0.98;
   }, [profile]);
 
+  /**
+   * Where the cap actually starts, for exactly the same reason as the base.
+   *
+   * The first scanline catches the antialiased top edge and reports a radius of
+   * 0.105 where the cap is really 0.805. Lathing from there gives the cap a
+   * spike, and putting the top disc at the jar's full height — where the cap has
+   * supposedly narrowed to a tenth of its width — left a wide gold plate
+   * floating above a domed cap. Seen from slightly below, which is where the
+   * camera sits relative to the top of an upright jar, that plate showed its
+   * underside as a pale ellipse across the whole cap.
+   */
+  const capTopT = useMemo(() => {
+    const solid = profile.points.filter((p) => p.r >= 0.5);
+    return solid.length ? solid[0].t : 0.01;
+  }, [profile]);
+
   const geometry = useMemo(() => {
     const split = profile.capSplit;
     return {
       // The lid is open underneath: you are meant to see up into it once it
       // lifts, and closing it would put a false disc where the liner sits.
-      lid: latheFrom(profile.points.filter((p) => p.t <= split), height, false, false),
+      lid: latheFrom(
+        profile.points.filter((p) => p.t >= capTopT && p.t <= split),
+        height,
+        false,
+        false,
+      ),
       /**
        * The body, now including the threaded neck.
        *
@@ -284,14 +319,19 @@ export function JarMesh({
         false,
       ),
     };
-  }, [profile, height, baseT]);
+  }, [profile, height, baseT, capTopT]);
 
-  /** Where the lid sits when closed, and how wide its top is. */
+  /** Where the lid's top sits, how wide it is there, and the mouth's radius. */
   const lidTop = useMemo(() => {
     const radiusAtSplit = profile.points.find((p) => p.t >= profile.capSplit)?.r ?? 0.9;
-    const capRadius = Math.max(...profile.points.filter((p) => p.t <= profile.capSplit).map((p) => p.r));
-    return { y: height / 2, radius: capRadius, neck: radiusAtSplit };
-  }, [profile, height]);
+    const top = profile.points.find((p) => p.t >= capTopT) ?? { t: capTopT, r: 0.8 };
+    return {
+      // The cap's chamfered top edge, not the jar's outermost pixel.
+      y: (1 - top.t) * height - height / 2,
+      radius: top.r,
+      neck: radiusAtSplit,
+    };
+  }, [profile, height, capTopT]);
 
   const capTopGeometry = useMemo(() => {
     const disc = new THREE.CircleGeometry(lidTop.radius, RADIAL_SEGMENTS);
@@ -370,6 +410,8 @@ export function JarMesh({
         map: { value: texture },
         uLimb: { value: 0.42 },
         uSheen: { value: 0.06 },
+        // The inside of the glass, seen through the open mouth.
+        uBackDark: { value: 0.55 },
       },
     });
   }, [texture]);
@@ -388,6 +430,8 @@ export function JarMesh({
         // own shadow even on a lit table.
         uLimb: { value: 0.3 },
         uSheen: { value: 0.02 },
+        // From above, the base disc is the floor of the jar under the paste.
+        uBackDark: { value: 0.8 },
       },
     });
   }, [jarBase]);
@@ -406,6 +450,8 @@ export function JarMesh({
         // darkening across it would just look like dirt.
         uLimb: { value: 0.12 },
         uSheen: { value: 0.04 },
+        // Its back is the unlit inside of the cap.
+        uBackDark: { value: 0.88 },
       },
     });
   }, [capTop]);
