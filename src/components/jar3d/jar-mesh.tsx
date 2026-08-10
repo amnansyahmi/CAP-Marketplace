@@ -455,7 +455,36 @@ export function JarMesh({
     for (let i = 0; i < uv.count; i++) uv.setXY(i, 0.5, 1);
     uv.needsUpdate = true;
 
-    return { wall, ceiling: disc, ceilingY: yOf(ceilingT) };
+    /**
+     * The metal edge at the mouth.
+     *
+     * Without it the lid is a knife: the shell stops at the rim in a line one
+     * pixel wide and the lining starts immediately behind it, so a lifted lid
+     * reads as a curl of paper rather than as a cap with a wall. It is not a
+     * flourish — it is the ring of rolled lip you actually look at, and its
+     * width is the gap between the two surfaces, which was measured off the
+     * photograph rather than chosen.
+     *
+     * It wears the bottom row of the cap's wrap, which is that lip as
+     * photographed.
+     */
+    const outer = shell[shell.length - 1] ?? { t: split, r: 0.93 };
+    const rim = new THREE.RingGeometry(
+      Math.max(0.02, outer.r * cap.innerRadius),
+      Math.max(0.03, outer.r),
+      RADIAL_SEGMENTS,
+    );
+    rim.rotateX(Math.PI / 2);
+    const rimPosition = rim.getAttribute("position");
+    const rimUv = rim.getAttribute("uv");
+    for (let i = 0; i < rimUv.count; i++) {
+      // Round the ring for u, pinned to the rim for v.
+      const angle = Math.atan2(rimPosition.getZ(i), rimPosition.getX(i));
+      rimUv.setXY(i, angle / (Math.PI * 2), 0);
+    }
+    rimUv.needsUpdate = true;
+
+    return { wall, ceiling: disc, rim, ceilingY: yOf(ceilingT), rimY: lidSpan.bottom };
   }, [profile, height, capTopT, lidSpan]);
 
   /** Where the lid's top sits, how wide it is there, and the mouth's radius. */
@@ -685,7 +714,12 @@ export function JarMesh({
         // and it is also what takes the ceiling down from the wall colour it
         // borrows.
         uLimb: { value: 0.55 },
-        uSheen: { value: 0.08 },
+        // Almost none. A cavity has no key light in it — and a highlight added
+        // in linear light lands on this ramp's blue channel, which is about
+        // 0.003, as a quadrupling. At 0.08 it turned the inside of the lid pale
+        // and left it reading *brighter* than the lit brass outside it, which is
+        // exactly backwards and is what made a lifted lid look like curled paper.
+        uSheen: { value: 0.015 },
         uFalloff: { value: 1.4 },
         uSheenColour: { value: BRASS_SHEEN },
         uBackDark: { value: 0 },
@@ -798,6 +832,7 @@ export function JarMesh({
         <mesh geometry={capTopGeometry} material={capMaterial} position={[0, lidTop.y, 0]} />
         <mesh geometry={interior.wall} material={liningMaterial} />
         <mesh geometry={interior.ceiling} material={liningMaterial} position={[0, interior.ceilingY, 0]} />
+        <mesh geometry={interior.rim} material={capSideMaterial} position={[0, interior.rimY, 0]} />
       </group>
     </group>
   );

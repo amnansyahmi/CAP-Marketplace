@@ -838,12 +838,29 @@ for (let step = 0; step < INNER_STEPS; step++) {
     rgb = [lastSeen[0], lastSeen[1], lastSeen[2]];
   }
 
+  /**
+   * How much light gets this far into the cavity.
+   *
+   * The one thing the photograph genuinely cannot tell us. It was taken of a cap
+   * lying open, mouth toward the room, so its inside is about as bright as its
+   * outside — and rendered at that level the lifted lid came out *brighter*
+   * inside than the lit brass around it. Which is backwards, and read as a curl
+   * of card rather than as a cap with a cavity: with no shadow anywhere, there
+   * was nothing to say the surface had gone round a corner.
+   *
+   * So light falls off with depth, from full at the rim to a bit over a third at
+   * the ceiling. Not measured, and not pretending to be — it is the contact
+   * shading a flat photograph of a lit interior cannot carry, and the depth axis
+   * is the only axis it can vary along on a surface this symmetric.
+   */
+  const reached = 1 - 0.62 * (depth / cavityDepth) ** 0.75;
+  const shaded = rgb.map((v) => Math.round(Math.max(0, Math.min(255, v * reached))));
+
   for (let x = 0; x < INNER_WIDTH; x++) {
     const o = (step * INNER_WIDTH + x) * 4;
-    for (let c = 0; c < 3; c++) rgb[c] = Math.max(0, Math.min(255, rgb[c]));
-    ramp[o] = Math.round(rgb[0]);
-    ramp[o + 1] = Math.round(rgb[1]);
-    ramp[o + 2] = Math.round(rgb[2]);
+    ramp[o] = shaded[0];
+    ramp[o + 1] = shaded[1];
+    ramp[o + 2] = shaded[2];
     ramp[o + 3] = 255;
   }
 }
