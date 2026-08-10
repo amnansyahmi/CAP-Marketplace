@@ -249,6 +249,7 @@ export function JarMesh({
   const texture = useLoader(THREE.TextureLoader, image);
   const capTop = useLoader(THREE.TextureLoader, "/products/3d/cap-top.webp");
   const jarBase = useLoader(THREE.TextureLoader, "/products/3d/jar-base.webp");
+  const neckTexture = useLoader(THREE.TextureLoader, `/products/3d/${productId}-neck.webp`);
   const camera = useThree((state) => state.camera) as THREE.PerspectiveCamera;
   const size = useThree((state) => state.size);
   // On a still jar the frame loop is on demand, so anything that changes what
@@ -304,20 +305,19 @@ export function JarMesh({
         false,
         false,
       ),
+      body: latheFrom(profile.points.filter((p) => p.t >= split && p.t <= baseT), height, false, false),
+
       /**
-       * The body, now including the threaded neck.
+       * The threaded neck, as its own mesh.
        *
-       * The neck comes from the lid-off photograph and reaches *above* the cap
-       * join, because that is where it really is — the cap screws down over it.
-       * Every earlier version stopped at the shoulder, so lifting the lid
-       * revealed a jar with no neck and no rim to have been sealed.
+       * It reaches *above* the cap join, because that is where it really is —
+       * the cap screws down over it. That overlap is why it cannot share the
+       * jar's texture: the lid and the neck occupy the same band of the jar's
+       * height, so one image cannot hold both, and compositing the neck into
+       * the shared wrap painted dark glass across the bottom half of the gold
+       * cap. Its own mesh, its own strip.
        */
-      body: latheFrom(
-        [...profile.neck, ...profile.points.filter((p) => p.t > split && p.t <= baseT)],
-        height,
-        false,
-        false,
-      ),
+      neck: latheFrom(profile.neck, height, false, false),
     };
   }, [profile, height, baseT, capTopT]);
 
@@ -436,6 +436,43 @@ export function JarMesh({
     });
   }, [jarBase]);
 
+  /**
+   * The neck's strip runs top-to-bottom over its own small range of the jar,
+   * so its UVs cannot use the shared full-height mapping.
+   */
+  const neckGeometry = useMemo(() => {
+    const g = geometry.neck;
+    const yOf = (t: number) => (1 - t) * height - height / 2;
+    const top = yOf(profile.rimT);
+    const bottom = yOf(profile.capSplit);
+
+    const position = g.getAttribute("position");
+    const uv = g.getAttribute("uv");
+    for (let i = 0; i < position.count; i++) {
+      uv.setY(i, (position.getY(i) - bottom) / Math.max(0.0001, top - bottom));
+    }
+    uv.needsUpdate = true;
+    return g;
+  }, [geometry.neck, profile, height]);
+
+  const neckMaterial = useMemo(() => {
+    neckTexture.colorSpace = THREE.SRGBColorSpace;
+    neckTexture.wrapS = THREE.RepeatWrapping;
+    neckTexture.anisotropy = 8;
+    return new THREE.ShaderMaterial({
+      vertexShader,
+      fragmentShader,
+      transparent: true,
+      side: THREE.DoubleSide,
+      uniforms: {
+        map: { value: neckTexture },
+        uLimb: { value: 0.42 },
+        uSheen: { value: 0.05 },
+        uBackDark: { value: 0.55 },
+      },
+    });
+  }, [neckTexture]);
+
   const capMaterial = useMemo(() => {
     capTop.colorSpace = THREE.SRGBColorSpace;
     capTop.anisotropy = 8;
@@ -502,7 +539,7 @@ export function JarMesh({
   // runs once it is genuinely ready to be drawn.
   useEffect(() => {
     invalidate();
-  }, [texture, capTop, jarBase, material, geometry, invalidate]);
+  }, [texture, capTop, jarBase, neckTexture, material, geometry, invalidate]);
 
   const elapsed = useRef(0);
   /** The lid's own 0-to-1, derived from the pose and handed to the splash. */
@@ -547,6 +584,7 @@ export function JarMesh({
     // composition never jumps while somebody is scrolling through it.
     <group ref={group} position={[0, -lift / 2, 0]}>
       <mesh geometry={geometry.body} material={material} />
+      <mesh geometry={neckGeometry} material={neckMaterial} />
       <mesh geometry={base.geometry} material={baseMaterial} position={[0, base.y, 0]} />
       {progress && (
         <Crown

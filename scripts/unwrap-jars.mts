@@ -69,8 +69,8 @@ const EDGE_SAMPLES = 5;
 /** Degrees either side of each seam over which the two photographs cross-fade. */
 const SEAM_BLEND_DEG = 10;
 
-/** How far below the cap join the neck photograph fades out. */
-const NECK_BLEND_T = 0.03;
+/** Rows in the neck's own strip. It covers about 7% of the jar's height. */
+const NECK_HEIGHT = 192;
 
 type Row = { centre: number; radius: number };
 type Image = Awaited<ReturnType<typeof readImage>>;
@@ -372,17 +372,6 @@ async function unwrap(name: string, blank: Image, blankRows: (Row | null)[]) {
         rgba = b ? a.map((v, c) => v * (1 - smooth) + b[c] * smooth) : a;
       }
 
-      // The neck replaces whatever the capped photograph had at this height,
-      // fading in over a short band so the join is not a line.
-      if (t >= rimT && t <= capSplit + NECK_BLEND_T) {
-        const neckPixel = neckSample();
-        if (neckPixel) {
-          const over = Math.max(0, t - capSplit) / NECK_BLEND_T;
-          const mix = 1 - over * over * (3 - 2 * over);
-          rgba = rgba.map((v, c) => v * (1 - mix) + neckPixel[c] * mix);
-        }
-      }
-
       for (let c = 0; c < 4; c++) out[o + c] = Math.max(0, Math.min(255, Math.round(rgba[c])));
     }
   }
@@ -391,6 +380,46 @@ async function unwrap(name: string, blank: Image, blankRows: (Row | null)[]) {
   await sharp(out, { raw: { width: OUT_WIDTH, height: OUT_HEIGHT, channels: 4 } })
     .webp({ quality: 86 })
     .toFile(resolve(OUT, `${name}-wrap.webp`));
+
+  /**
+   * The neck, on its own strip.
+   *
+   * It cannot share the jar's texture. Both the lid and the body cover the same
+   * band of the jar's height — the cap screws down over the neck — so one
+   * texture cannot hold both, and compositing the neck into it painted dark
+   * glass across the bottom half of the gold cap. Its own strip, its own mesh.
+   */
+  const neckPixels = Buffer.alloc(OUT_WIDTH * NECK_HEIGHT * 4);
+  for (let ny = 0; ny < NECK_HEIGHT; ny++) {
+    const tt = rimT + (ny / (NECK_HEIGHT - 1)) * (capSplit - rimT);
+    const oy2 = Math.min(openExtent.last, Math.max(openExtent.first, Math.round(closedTToOpen(tt))));
+    const row2 = rowNear(openRows, oy2);
+    if (!row2) continue;
+
+    for (let ox = 0; ox < OUT_WIDTH; ox++) {
+      const theta = (ox / OUT_WIDTH) * Math.PI * 2 - Math.PI;
+
+      // Front arc straight; behind it, the same stretched traverse the label
+      // uses. A threaded neck is near enough rotationally symmetric that this
+      // reads as more of the same rather than as a repeat.
+      let angle = theta;
+      if (Math.abs(theta) > usable) {
+        const psi = theta >= 0 ? theta - usable : theta + 2 * Math.PI - usable;
+        angle = usable - (psi / backSpan) * (2 * usable);
+      }
+
+      const sx = row2.centre + row2.radius * Math.sin(angle);
+      const o = (ny * OUT_WIDTH + ox) * 4;
+      for (let c = 0; c < 4; c++) {
+        const value = sample(openJar, sx, oy2, c) * (c < 3 ? neckGain[c] : 1);
+        neckPixels[o + c] = Math.max(0, Math.min(255, Math.round(value)));
+      }
+    }
+  }
+
+  await sharp(neckPixels, { raw: { width: OUT_WIDTH, height: NECK_HEIGHT, channels: 4 } })
+    .webp({ quality: 88 })
+    .toFile(resolve(OUT, `${name}-neck.webp`));
 
   return { ...profileFrom(rows), paste: pasteColour(out), rimT: Number(rimT.toFixed(4)), neck };
 }
