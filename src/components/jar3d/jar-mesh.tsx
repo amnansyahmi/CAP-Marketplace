@@ -381,9 +381,22 @@ export function JarMesh({
   }, [profile]);
 
   /** Where the lid's own texture starts and stops, in world height. */
+  /**
+   * Where the lid's own texture starts and stops, in world height.
+   *
+   * Taken from the profile points the lid is *actually* lathed from, not from
+   * `capSplit` itself. The silhouette was measured on a hundred-odd scanlines, so
+   * the last point at or above the join sits up to one scanline short of it —
+   * and anything positioned at `capSplit` therefore hangs below the lid's real
+   * bottom edge. The rim ring did exactly that: a pale fringe all the way round,
+   * a few pixels clear of the metal it was supposed to close, which is what made
+   * a lifted lid look like a curl of torn paper.
+   */
   const lidSpan = useMemo(() => {
     const yOf = (t: number) => (1 - t) * height - height / 2;
-    return { top: yOf(capTopT), bottom: yOf(profile.capSplit) };
+    const within = profile.points.filter((p) => p.t >= capTopT && p.t <= profile.capSplit);
+    const last = within[within.length - 1] ?? { t: profile.capSplit, r: 0.93 };
+    return { top: yOf(capTopT), bottom: yOf(last.t), bottomRadius: last.r };
   }, [profile, height, capTopT]);
 
   const geometry = useMemo(() => {
@@ -468,10 +481,9 @@ export function JarMesh({
      * It wears the bottom row of the cap's wrap, which is that lip as
      * photographed.
      */
-    const outer = shell[shell.length - 1] ?? { t: split, r: 0.93 };
     const rim = new THREE.RingGeometry(
-      Math.max(0.02, outer.r * cap.innerRadius),
-      Math.max(0.03, outer.r),
+      Math.max(0.02, lidSpan.bottomRadius * cap.innerRadius),
+      Math.max(0.03, lidSpan.bottomRadius),
       RADIAL_SEGMENTS,
     );
     rim.rotateX(Math.PI / 2);
@@ -484,7 +496,10 @@ export function JarMesh({
     }
     rimUv.needsUpdate = true;
 
-    return { wall, ceiling: disc, rim, ceilingY: yOf(ceilingT), rimY: lidSpan.bottom };
+    // The ceiling rides the wall's own top ring, for the same reason the rim
+    // rides the shell's own bottom one: a scanline's worth of gap here is a
+    // visible slot in a lid the size this one is drawn at.
+    return { wall, ceiling: disc, rim, ceilingY: yOf(top.t), rimY: lidSpan.bottom };
   }, [profile, height, capTopT, lidSpan]);
 
   /** Where the lid's top sits, how wide it is there, and the mouth's radius. */
@@ -806,8 +821,26 @@ export function JarMesh({
       // actually takes, and turning it the other way looks like tightening.
       lid.current.position.y = amount * lift;
       lid.current.rotation.y = -amount * Math.PI * 2.2;
-      // Tips very slightly as it clears the thread, so it reads as a lid coming
-      // free rather than a disc on a rail.
+      /**
+       * Tips as it clears the thread, so it reads as a lid coming free rather
+       * than a disc on a rail — and, more importantly, so you can see into it.
+       *
+       * The camera sits level with the middle of the jar, which puts it barely
+       * five degrees above a lid held up at the top of it. At five degrees a cap
+       * is almost edge-on: the mouth is a dark slit and the whole thing reads as
+       * a bent strip of card, which is exactly what it looked like. The
+       * photograph of the bare cap was taken from thirteen, and that is the
+       * difference between a ring and a cap you can see the inside of.
+       *
+       * The camera cannot be raised without re-framing every jar on the site, so
+       * the lid leans instead: eight degrees of `x` turns its mouth toward the
+       * viewer and lands the total on thirteen, which is the photograph's own
+       * angle. Leaning it the other way was tried first and made things worse —
+       * it cancels the five and puts the lid dead edge-on, a strip of foil.
+       *
+       * `z` is the slight sideways roll that keeps it from looking mechanical.
+       */
+      lid.current.rotation.x = amount * 0.14;
       lid.current.rotation.z = amount * 0.09;
     }
   });

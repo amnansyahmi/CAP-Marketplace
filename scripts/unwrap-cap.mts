@@ -848,12 +848,12 @@ for (let step = 0; step < INNER_STEPS; step++) {
    * of card rather than as a cap with a cavity: with no shadow anywhere, there
    * was nothing to say the surface had gone round a corner.
    *
-   * So light falls off with depth, from full at the rim to a bit over a third at
+   * So light falls off with depth, from full at the rim to a little over half at
    * the ceiling. Not measured, and not pretending to be — it is the contact
    * shading a flat photograph of a lit interior cannot carry, and the depth axis
    * is the only axis it can vary along on a surface this symmetric.
    */
-  const reached = 1 - 0.62 * (depth / cavityDepth) ** 0.75;
+  const reached = 1 - 0.44 * (depth / cavityDepth) ** 0.75;
   const shaded = rgb.map((v) => Math.round(Math.max(0, Math.min(255, v * reached))));
 
   for (let x = 0; x < INNER_WIDTH; x++) {
