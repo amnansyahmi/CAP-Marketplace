@@ -243,15 +243,30 @@ export function JarMesh({
   // reads as a squat pot.
   const height = profile.aspect * 2;
 
+  /**
+   * Where the jar actually stops.
+   *
+   * Not `t = 1`. The silhouette was measured off scanlines and the last couple
+   * catch the antialiased edge and the contact shadow, so the profile collapses
+   * from a radius of 0.70 to 0.09 in one step. Lathing that far turns the base
+   * into a spike; capping it at the last honest measurement gives the flat
+   * bottom the jar really has.
+   */
+  const baseT = useMemo(() => {
+    const solid = profile.points.filter((p) => p.r >= 0.5);
+    return solid.length ? solid[solid.length - 1].t : 0.98;
+  }, [profile]);
+
   const geometry = useMemo(() => {
     const split = profile.capSplit;
     return {
       // The lid is open underneath: you are meant to see up into it once it
       // lifts, and closing it would put a false disc where the liner sits.
       lid: sliceGeometry(profile, 0, split, height, false, false),
-      body: sliceGeometry(profile, split, 1, height, false, true),
+      // Open at the bottom too — the base disc caps it, at the right diameter.
+      body: sliceGeometry(profile, split, baseT, height, false, false),
     };
-  }, [profile, height]);
+  }, [profile, height, baseT]);
 
   /** Where the lid sits when closed, and how wide its top is. */
   const lidTop = useMemo(() => {
@@ -282,13 +297,14 @@ export function JarMesh({
    * a flat disc of nothing there would be the one part of the model obviously
    * faked — so it is the real base photograph, shot through the glass.
    */
-  const baseGeometry = useMemo(() => {
-    const radius = profile.points[profile.points.length - 1]?.r ?? 0.9;
-    const disc = new THREE.CircleGeometry(Math.max(0.05, radius), RADIAL_SEGMENTS);
+  /** The disc that caps the body, and where it sits. */
+  const base = useMemo(() => {
+    const point = profile.points.find((p) => p.t === baseT) ?? { t: baseT, r: 0.7 };
+    const disc = new THREE.CircleGeometry(Math.max(0.05, point.r), RADIAL_SEGMENTS);
     // Faces down, so its front side is the one you see from underneath.
     disc.rotateX(Math.PI / 2);
-    return disc;
-  }, [profile]);
+    return { geometry: disc, y: (1 - point.t) * height - height / 2 };
+  }, [profile, baseT, height]);
 
   /**
    * How far the lid travels when fully open.
@@ -308,14 +324,14 @@ export function JarMesh({
    */
   const extent = useMemo(() => {
     // Standing still, the jar only ever needs its own footprint.
-    if (!progress) return { width: 2, height };
+    if (!progress) return { width: 2, height, depth: 2 };
 
     // Tumbling, it passes through every orientation, so the frame has to hold
     // the sphere it sweeps out — otherwise it clips through the sides of the
     // canvas exactly as it turns onto its side. The extra height is the lid's
     // travel, which happens at the end with the jar upright again.
     const sweep = 2 * Math.hypot(height / 2, 1);
-    return { width: sweep, height: Math.max(sweep, height + lift) };
+    return { width: sweep, height: Math.max(sweep, height + lift), depth: sweep };
   }, [height, lift, progress]);
 
   const material = useMemo(() => {
@@ -393,8 +409,25 @@ export function JarMesh({
     const halfFov = (camera.fov * Math.PI) / 360;
 
     const margin = 1.12;
-    const forHeight = (extent.height * margin) / (2 * Math.tan(halfFov));
-    const forWidth = (extent.width * margin) / (2 * Math.tan(halfFov) * aspect);
+
+    /**
+     * Half the jar's depth.
+     *
+     * This is the part the first version left out, and it is why the cap ended
+     * up clipped. A jar is not a picture: it is two units deep, so its front
+     * surface sits a whole unit nearer the camera than its centre and is
+     * magnified accordingly — about 17% at this field of view. Fitting the
+     * *centre* plane therefore pushes the nearest edges outside the frame.
+     *
+     * It only started showing when the cap gained a real top face. Before that
+     * the highest geometry was the lathe closing on the axis, where there is no
+     * depth to magnify; the disc's rim is 0.93 out, so it magnified and spilled.
+     *
+     * Fitting `halfDepth + …` is fitting the closest plane instead.
+     */
+    const halfDepth = extent.depth / 2;
+    const forHeight = halfDepth + (extent.height * margin) / (2 * Math.tan(halfFov));
+    const forWidth = halfDepth + (extent.width * margin) / (2 * Math.tan(halfFov) * aspect);
 
     camera.position.z = Math.max(forHeight, forWidth);
     camera.updateProjectionMatrix();
@@ -450,7 +483,7 @@ export function JarMesh({
     // composition never jumps while somebody is scrolling through it.
     <group ref={group} position={[0, -lift / 2, 0]}>
       <mesh geometry={geometry.body} material={material} />
-      <mesh geometry={baseGeometry} material={baseMaterial} position={[0, -height / 2, 0]} />
+      <mesh geometry={base.geometry} material={baseMaterial} position={[0, base.y, 0]} />
       {progress && (
         <Splash
           progress={openness}
