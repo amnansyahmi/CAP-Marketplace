@@ -8,6 +8,7 @@ import { Crown } from "@/components/jar3d/crown";
 
 import profiles from "@/../public/products/3d/profiles.json";
 import parts from "@/../public/products/3d/parts.json";
+import cap from "@/../public/products/3d/cap.json";
 
 /**
  * The jar as real geometry, in two pieces that come apart.
@@ -29,16 +30,21 @@ import parts from "@/../public/products/3d/parts.json";
  *
  * ## Why the material is unlit
  *
- * The photograph already has studio lighting baked into it — the highlight down
- * the gold cap, the glow through the paste. Lighting it again with scene lights
- * would double every shadow and turn the cap muddy. So the base colour is taken
- * from the texture exactly as photographed.
+ * The photograph already has studio lighting baked into it — the glow through
+ * the paste, the sheen down the glass. Lighting it again with scene lights would
+ * double every shadow and turn the jar muddy. So the base colour is taken from
+ * the texture exactly as photographed.
  *
  * What is added on top is **view-dependent**, not baked: the surface darkens
  * where it turns away from the camera, and a soft highlight sits where the
  * light would be. Both are computed against the view direction, so they stay
  * put while the jar turns underneath them. That is what sells it as a solid
  * object rather than a picture on a tube.
+ *
+ * The cap goes further. Its texture had the key light taken *out* of it, because
+ * a lid that unscrews would otherwise carry the studio's highlight round with it,
+ * and its shading is turned up to suit brass rather than glass: a steeper falloff
+ * and a highlight tinted to the metal's own colour rather than white.
  */
 
 type Point = { t: number; r: number };
@@ -60,6 +66,28 @@ const { capTopFill } = parts;
 
 /** Segments round the jar. Enough that the silhouette has no visible facets. */
 const RADIAL_SEGMENTS = 96;
+
+/**
+ * How quickly glass gives up its light as it turns away. Gentle: a jar stays
+ * bright almost to its edge.
+ */
+const GLASS_FALLOFF = 0.65;
+/** Metal does not. The cap's brass goes dark fast, and should. */
+const METAL_FALLOFF = 1.7;
+
+/** A dielectric reflects the light's own colour, so its highlight is white. */
+const WHITE_SHEEN = new THREE.Color(1, 1, 1);
+/**
+ * Brass does not: a metal tints what it reflects, to roughly its own colour.
+ *
+ * These are **linear** values, which is the whole reason they look so much more
+ * saturated than the gold does on screen. The cap's photographed colour is about
+ * (0.60, 0.22, 0.03) in linear light — the blue channel is nearly nothing — so a
+ * white highlight of even a tenth lands on that blue as a *tripling*, and the
+ * brass comes out as pale salmon. It did, until this was measured rather than
+ * eyeballed: this is that colour normalised, which is what its highlight is.
+ */
+const BRASS_SHEEN = new THREE.Color(1, 0.38, 0.1);
 
 /**
  * What the jar is doing at each point through the scroll section.
@@ -134,6 +162,23 @@ const fragmentShader = /* glsl */ `
   uniform float uLimb;
   uniform float uSheen;
   /**
+   * How fast the surface darkens as it turns away.
+   *
+   * Glass wants this low: it stays bright almost to the silhouette and then
+   * goes. Turned metal wants it high — the brass falls off steeply and that
+   * steepness is most of what makes it read as metal rather than as painted
+   * card. One number, because it is the same falloff curve either way.
+   */
+  uniform float uFalloff;
+  /**
+   * What colour the highlight is.
+   *
+   * White for glass, and for the paste. Not for the cap: a metal tints its own
+   * reflection, so a white highlight on brass reads as a pale plastic lid — which
+   * is exactly what it looked like before this existed.
+   */
+  uniform vec3 uSheenColour;
+  /**
    * How much to darken faces we are seeing from behind.
    *
    * Every part of the jar is a single-sided surface drawn from both sides, so
@@ -158,13 +203,13 @@ const fragmentShader = /* glsl */ `
 
     // Limb darkening. Deliberately gentle: the photograph already contains some
     // of this, and doubling it makes the jar look like a black-edged sticker.
-    float shade = mix(1.0 - uLimb, 1.0, pow(facing, 0.65));
+    float shade = mix(1.0 - uLimb, 1.0, pow(facing, uFalloff));
 
     // A soft band of light up the left of the jar, where the key light sits in
     // the original photograph. Computed in view space so it stays still.
     float sheen = pow(clamp(dot(normalize(vNormalView), normalize(vec3(-0.55, 0.35, 0.75))), 0.0, 1.0), 6.0);
 
-    vec3 colour = texel.rgb * shade + sheen * uSheen;
+    vec3 colour = texel.rgb * shade + sheen * uSheen * uSheenColour;
 
     // Interior surfaces keep the material's colour but lose the light.
     if (!gl_FrontFacing) colour *= (1.0 - uBackDark);
@@ -212,6 +257,45 @@ function latheFrom(source: Point[], height: number, closeTop: boolean, closeBott
   return lathe;
 }
 
+/**
+ * Flips a lathe so it is a surface you look at from within.
+ *
+ * The inside of the cap is a real wall, not the back of the outside one, and it
+ * has to be shaded as a wall: its normals must point at the camera when the
+ * camera is inside it. Reversing the winding and negating the normals does both
+ * — the triangles face inward, so front-face culling keeps them while the outer
+ * shell is drawn over the top, and `facing` in the shader comes out positive
+ * where the surface really is facing you.
+ */
+function turnInsideOut(geometry: THREE.BufferGeometry) {
+  const index = geometry.getIndex();
+  if (index) {
+    for (let i = 0; i < index.count; i += 3) {
+      const a = index.getX(i);
+      index.setX(i, index.getX(i + 2));
+      index.setX(i + 2, a);
+    }
+    index.needsUpdate = true;
+  }
+  const normal = geometry.getAttribute("normal");
+  for (let i = 0; i < normal.count; i++) {
+    normal.setXYZ(i, -normal.getX(i), -normal.getY(i), -normal.getZ(i));
+  }
+  normal.needsUpdate = true;
+  return geometry;
+}
+
+/** Rewrites a piece's UVs so a texture of its own runs top to bottom over it. */
+function mapToOwnSpan(geometry: THREE.BufferGeometry, bottom: number, top: number) {
+  const position = geometry.getAttribute("position");
+  const uv = geometry.getAttribute("uv");
+  for (let i = 0; i < position.count; i++) {
+    uv.setY(i, (position.getY(i) - bottom) / Math.max(0.0001, top - bottom));
+  }
+  uv.needsUpdate = true;
+  return geometry;
+}
+
 export function JarMesh({
   productId,
   image,
@@ -248,6 +332,8 @@ export function JarMesh({
   const lid = useRef<THREE.Group>(null);
   const texture = useLoader(THREE.TextureLoader, image);
   const capTop = useLoader(THREE.TextureLoader, "/products/3d/cap-top.webp");
+  const capSide = useLoader(THREE.TextureLoader, "/products/3d/cap-wrap.webp");
+  const capLining = useLoader(THREE.TextureLoader, "/products/3d/cap-inner.webp");
   const jarBase = useLoader(THREE.TextureLoader, "/products/3d/jar-base.webp");
   const neckTexture = useLoader(THREE.TextureLoader, `/products/3d/${productId}-neck.webp`);
   const camera = useThree((state) => state.camera) as THREE.PerspectiveCamera;
@@ -294,16 +380,31 @@ export function JarMesh({
     return solid.length ? solid[0].t : 0.01;
   }, [profile]);
 
+  /** Where the lid's own texture starts and stops, in world height. */
+  const lidSpan = useMemo(() => {
+    const yOf = (t: number) => (1 - t) * height - height / 2;
+    return { top: yOf(capTopT), bottom: yOf(profile.capSplit) };
+  }, [profile, height, capTopT]);
+
   const geometry = useMemo(() => {
     const split = profile.capSplit;
     return {
-      // The lid is open underneath: you are meant to see up into it once it
-      // lifts, and closing it would put a false disc where the liner sits.
-      lid: latheFrom(
-        profile.points.filter((p) => p.t >= capTopT && p.t <= split),
-        height,
-        false,
-        false,
+      /**
+       * The lid, wearing the cap's own photograph rather than a slice of the
+       * jar's.
+       *
+       * It is open underneath: you are meant to see up into it once it lifts,
+       * and what you see is the interior below rather than a false disc.
+       */
+      lid: mapToOwnSpan(
+        latheFrom(
+          profile.points.filter((p) => p.t >= capTopT && p.t <= split),
+          height,
+          false,
+          false,
+        ),
+        lidSpan.bottom,
+        lidSpan.top,
       ),
       body: latheFrom(profile.points.filter((p) => p.t >= split && p.t <= baseT), height, false, false),
 
@@ -319,7 +420,43 @@ export function JarMesh({
        */
       neck: latheFrom(profile.neck, height, false, false),
     };
-  }, [profile, height, baseT, capTopT]);
+  }, [profile, height, baseT, capTopT, lidSpan]);
+
+  /**
+   * The inside of the cap.
+   *
+   * Every time the lid lifts and tilts you are looking up into it, and until the
+   * bare cap was photographed there was nothing to show — so the underside was
+   * simply darkened, which read as a hole rather than as a lid. It is in fact
+   * gold, threaded, and lit right up to the top.
+   *
+   * Two pieces: a wall a hair inside the shell, and a disc closing it off at the
+   * measured cavity depth. Both are turned inside out, because they are only ever
+   * seen from within.
+   */
+  const interior = useMemo(() => {
+    const split = profile.capSplit;
+    // The cavity runs from the rim up to a ceiling short of the shell's top.
+    const ceilingT = split - (split - capTopT) * cap.cavity;
+    const yOf = (t: number) => (1 - t) * height - height / 2;
+
+    const shell = profile.points.filter((p) => p.t >= ceilingT && p.t <= split);
+    const lining = shell.map((p) => ({ t: p.t, r: p.r * cap.innerRadius }));
+    const wall = turnInsideOut(
+      mapToOwnSpan(latheFrom(lining, height, false, false), lidSpan.bottom, yOf(ceilingT)),
+    );
+
+    const top = lining[0] ?? { t: ceilingT, r: 0.8 };
+    const disc = new THREE.CircleGeometry(Math.max(0.05, top.r), RADIAL_SEGMENTS);
+    // Faces down, so it is the face you see looking up into a lifted lid.
+    disc.rotateX(Math.PI / 2);
+    // Pinned to the deepest row of the ramp: the wall colour right beside it.
+    const uv = disc.getAttribute("uv");
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, 0.5, 1);
+    uv.needsUpdate = true;
+
+    return { wall, ceiling: disc, ceilingY: yOf(ceilingT) };
+  }, [profile, height, capTopT, lidSpan]);
 
   /** Where the lid's top sits, how wide it is there, and the mouth's radius. */
   const lidTop = useMemo(() => {
@@ -410,6 +547,8 @@ export function JarMesh({
         map: { value: texture },
         uLimb: { value: 0.42 },
         uSheen: { value: 0.06 },
+        uFalloff: { value: GLASS_FALLOFF },
+        uSheenColour: { value: WHITE_SHEEN },
         // The inside of the glass, seen through the open mouth.
         uBackDark: { value: 0.55 },
       },
@@ -430,6 +569,8 @@ export function JarMesh({
         // own shadow even on a lit table.
         uLimb: { value: 0.3 },
         uSheen: { value: 0.02 },
+        uFalloff: { value: GLASS_FALLOFF },
+        uSheenColour: { value: WHITE_SHEEN },
         // From above, the base disc is the floor of the jar under the paste.
         uBackDark: { value: 0.8 },
       },
@@ -441,18 +582,8 @@ export function JarMesh({
    * so its UVs cannot use the shared full-height mapping.
    */
   const neckGeometry = useMemo(() => {
-    const g = geometry.neck;
     const yOf = (t: number) => (1 - t) * height - height / 2;
-    const top = yOf(profile.rimT);
-    const bottom = yOf(profile.capSplit);
-
-    const position = g.getAttribute("position");
-    const uv = g.getAttribute("uv");
-    for (let i = 0; i < position.count; i++) {
-      uv.setY(i, (position.getY(i) - bottom) / Math.max(0.0001, top - bottom));
-    }
-    uv.needsUpdate = true;
-    return g;
+    return mapToOwnSpan(geometry.neck, yOf(profile.capSplit), yOf(profile.rimT));
   }, [geometry.neck, profile, height]);
 
   const neckMaterial = useMemo(() => {
@@ -468,6 +599,8 @@ export function JarMesh({
         map: { value: neckTexture },
         uLimb: { value: 0.42 },
         uSheen: { value: 0.05 },
+        uFalloff: { value: GLASS_FALLOFF },
+        uSheenColour: { value: WHITE_SHEEN },
         uBackDark: { value: 0.55 },
       },
     });
@@ -486,12 +619,79 @@ export function JarMesh({
         // Flatter than the body: this face is a disc, not a curve, so limb
         // darkening across it would just look like dirt.
         uLimb: { value: 0.12 },
-        uSheen: { value: 0.04 },
+        uSheen: { value: 0.18 },
+        // Flat, so it barely turns away at all; the metal falloff would only
+        // put a dark ring round a face that is square on to the camera.
+        uFalloff: { value: GLASS_FALLOFF },
+        uSheenColour: { value: BRASS_SHEEN },
         // Its back is the unlit inside of the cap.
         uBackDark: { value: 0.88 },
       },
     });
   }, [capTop]);
+
+  /**
+   * The side of the cap, from the cap's own photograph.
+   *
+   * More limb darkening and more sheen than the glass, because it is turned
+   * metal and behaves like it: it falls off fast at the silhouette and carries a
+   * bright, narrow highlight. Both are computed against the view, so the
+   * highlight stays where the studio light is while the lid unscrews underneath
+   * it — which is the whole reason the texture had the baked one taken out.
+   */
+  const capSideMaterial = useMemo(() => {
+    capSide.colorSpace = THREE.SRGBColorSpace;
+    capSide.wrapS = THREE.RepeatWrapping;
+    capSide.anisotropy = 8;
+    return new THREE.ShaderMaterial({
+      vertexShader,
+      fragmentShader,
+      transparent: true,
+      side: THREE.DoubleSide,
+      uniforms: {
+        map: { value: capSide },
+        uLimb: { value: 0.52 },
+        uSheen: { value: 0.26 },
+        uFalloff: { value: METAL_FALLOFF },
+        uSheenColour: { value: BRASS_SHEEN },
+        // Its back is the inside of the shell, which the lining is drawn over.
+        uBackDark: { value: 0.9 },
+      },
+    });
+  }, [capSide]);
+
+  /**
+   * The threaded lining and the disc that closes it.
+   *
+   * Front faces only. The pieces have been turned inside out, so the faces that
+   * survive are the ones pointing back at a camera that is inside the cap, and
+   * the ones that would otherwise be drawn across the mouth from outside are
+   * gone. Nothing needs darkening for being seen from behind, because nothing
+   * here ever is.
+   */
+  const liningMaterial = useMemo(() => {
+    capLining.colorSpace = THREE.SRGBColorSpace;
+    capLining.wrapS = THREE.RepeatWrapping;
+    capLining.anisotropy = 4;
+    return new THREE.ShaderMaterial({
+      vertexShader,
+      fragmentShader,
+      transparent: false,
+      side: THREE.FrontSide,
+      uniforms: {
+        map: { value: capLining },
+        // Strong, and deliberately so. A cavity reads as a cavity because its
+        // walls fall away into shadow as they turn; this is that falling away,
+        // and it is also what takes the ceiling down from the wall colour it
+        // borrows.
+        uLimb: { value: 0.55 },
+        uSheen: { value: 0.08 },
+        uFalloff: { value: 1.4 },
+        uSheenColour: { value: BRASS_SHEEN },
+        uBackDark: { value: 0 },
+      },
+    });
+  }, [capLining]);
 
   /**
    * Pull the camera back far enough that the whole jar fits.
@@ -539,7 +739,7 @@ export function JarMesh({
   // runs once it is genuinely ready to be drawn.
   useEffect(() => {
     invalidate();
-  }, [texture, capTop, jarBase, neckTexture, material, geometry, invalidate]);
+  }, [texture, capTop, capSide, capLining, jarBase, neckTexture, material, geometry, invalidate]);
 
   const elapsed = useRef(0);
   /** The lid's own 0-to-1, derived from the pose and handed to the splash. */
@@ -594,8 +794,10 @@ export function JarMesh({
         />
       )}
       <group ref={lid}>
-        <mesh geometry={geometry.lid} material={material} />
+        <mesh geometry={geometry.lid} material={capSideMaterial} />
         <mesh geometry={capTopGeometry} material={capMaterial} position={[0, lidTop.y, 0]} />
+        <mesh geometry={interior.wall} material={liningMaterial} />
+        <mesh geometry={interior.ceiling} material={liningMaterial} position={[0, interior.ceilingY, 0]} />
       </group>
     </group>
   );

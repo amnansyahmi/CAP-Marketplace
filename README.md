@@ -216,6 +216,36 @@ carry on, which is what the real packaging does. No text, nutrition panel or
 barcode is invented, because inventing product information is not a rendering
 decision.
 
+### The cap, which had its own photograph
+
+The lid is the part a visitor looks at longest — it is at the top, it is the only
+metal on the jar, and it is what lifts off. Taking it from the jar shot was never
+going to be enough: only ±72° of that is real, so the rest of the cap's band was
+the back of a blank jar stretched round, and the chamfer rose and fell as the jar
+turned when on a machined cap it is a dead level line.
+
+So the bare cap was photographed on its own and `npm run cap` reads it. A cap is
+a surface of revolution, so one measurement — how far above the rim plane the
+camera sat, taken from the ratio of the mouth ellipse's axes — fixes the mapping
+between the photograph and the cylinder, forwards to unwrap the outside and
+backwards to read the inside.
+
+The knurling is machined: identical flutes at an identical pitch the whole way
+round. So the strip is split into what varies *up* the cap and what varies
+*around* it, every flute in the sharp part of the arc is folded onto one another
+and averaged, and the average is tiled a whole number of times into a whole
+number of pixels each. Nothing is invented — the flute's shape, its pitch and the
+bands' positions are the photographed ones — but the result closes exactly at the
+seam and cannot alias, which copying an arc of photograph and stretching it round
+does on both counts.
+
+**The inside is a ramp, not a picture.** The interior is threads: horizontal
+rings, rotationally symmetric, where the only thing varying with azimuth is the
+lighting. So it is read as one column of colour against depth, averaged across
+the arc, and revolved. The honest limit is the ceiling — at 13° above the rim
+there is no line of sight to it, so the disc closing the cavity wears the deepest
+wall colour and lets the shader take it down from there.
+
 ### Why the material is unlit
 
 The photograph already has studio lighting in it. Lighting it again would double
@@ -224,9 +254,20 @@ added is view-dependent: the surface darkens where it turns away from the
 camera, and a soft highlight sits where the key light was. Both are computed
 against the view direction, so they stay put while the jar turns underneath.
 
-The honest limitation: the highlight *photographed into* the texture rotates
-with the jar. Nothing fixes that short of relighting the shot, and at a normal
-turn speed it reads as reflection.
+Two knobs, because glass and brass are not the same material: how fast the
+surface darkens as it turns away (gentle for glass, steep for metal, which is
+most of what makes metal read as metal), and what colour the highlight is. That
+second one matters more than it sounds. Highlights are added in **linear** light,
+where the cap's blue channel is about 0.03 — so a white highlight of even a tenth
+lands on it as a tripling, and the brass comes out as pale salmon. A metal tints
+its own reflection; giving the cap a brass-coloured highlight is what turns it
+back into gold.
+
+The honest limitation: the highlight *photographed into* the label rotates with
+the jar. Nothing fixes that short of relighting the shot, and at a normal turn
+speed it reads as reflection. The cap is the exception — its key light was
+measured out and put back by the shader, so the shine on the lid stays where the
+light is even as the lid unscrews.
 
 ### What it costs, measured
 
@@ -256,7 +297,9 @@ Auto-drift runs in the hero only. On a product page the jar holds still until
 dragged — a jar that turns away while you are reading the ingredients is an
 irritation, not a flourish.
 
-Re-run `npm run jars` after replacing any product photograph.
+Re-run `npm run jars` after replacing any product photograph, and `npm run cap`
+after that — the cap's colour is anchored to the jars' own cap band, so it needs
+the wraps to exist before it can match them.
 
 ## The shopfront
 

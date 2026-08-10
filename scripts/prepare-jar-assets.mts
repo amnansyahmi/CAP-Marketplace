@@ -170,6 +170,7 @@ await extract("cap-top", "cap-top");
 await extract("jar-base", "jar-base");
 await extract("jar-open", "jar-open");
 await extract("jar-splash", "jar-splash");
+await extract("cap-inside", "cap-inside");
 
 const parts = { capTopFill: await capFill(resolve(OUT, "cap-top.webp")) };
 writeFileSync(resolve(OUT, "parts.json"), `${JSON.stringify(parts, null, 2)}\n`);

@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "jars": "tsx scripts/unwrap-jars.mts",
     "assets": "tsx scripts/prepare-jar-assets.mts",
-    "splash": "tsx scripts/unwrap-splash.mts"
+    "splash": "tsx scripts/unwrap-splash.mts",
+    "cap": "tsx scripts/unwrap-cap.mts"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.20",
