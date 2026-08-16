@@ -44,20 +44,108 @@ type Global = typeof globalThis & { __chefAmmarDb?: Promise<Db> };
 /** Single connection per process, reused across hot reloads in dev. */
 export function getDb(): Promise<Db> {
   const g = globalThis as Global;
-  if (!g.__chefAmmarDb) g.__chefAmmarDb = connect();
-  return g.__chefAmmarDb;
+  const existing = g.__chefAmmarDb;
+  if (existing) return existing;
+
+  // A rejected promise stays cached, so one refused connection at cold start
+  // would leave this instance permanently broken while it carried on serving
+  // requests. Forget the failure so the next caller genuinely retries.
+  const pending: Promise<Db> = connect().catch((error) => {
+    if (g.__chefAmmarDb === pending) g.__chefAmmarDb = undefined;
+    throw error;
+  });
+  g.__chefAmmarDb = pending;
+  return pending;
 }
 
 async function connect(): Promise<Db> {
   const db = process.env.DATABASE_URL ? await connectPostgres() : await connectPglite();
-  // Idempotent, so it is safe on every cold start.
-  await db.exec(SCHEMA_SQL);
+  await bootstrapSchema(db);
   return db;
 }
 
+/**
+ * Creates the schema if it is not there yet.
+ *
+ * The script is idempotent, but running it on *every* cold start is not free
+ * at the moment it matters least: a traffic spike starts dozens of instances
+ * at once, and dozens of concurrent `CREATE TABLE IF NOT EXISTS` /
+ * `CREATE INDEX IF NOT EXISTS` statements contend on the same catalogue rows.
+ * They serialise at best and deadlock at worst — during the spike.
+ *
+ * So: look first, and take an advisory lock before writing, which means one
+ * instance does the work and the rest wait briefly and find it done. The check
+ * is one cheap query on the ordinary path.
+ */
+async function bootstrapSchema(db: Db): Promise<void> {
+  const present = async () => {
+    const rows = await db.query<{ table: string | null }>(
+      `SELECT to_regclass('public.orders')::text AS table`,
+    );
+    return Boolean(rows.rows[0]?.table);
+  };
+
+  if (await present()) return;
+
+  // PGlite is a single connection with no other writer, so the lock is pure
+  // overhead there — and `pg_advisory_lock` on it would block the one session
+  // the queue depends on.
+  if (!process.env.DATABASE_URL) {
+    await db.exec(SCHEMA_SQL);
+    return;
+  }
+
+  // An arbitrary but stable key: any two instances of this app pick the same one.
+  const LOCK = 8_213_004_517;
+
+  // `pg_try_advisory_lock` rather than the blocking form: waiting on a lock is
+  // a statement, and a statement that waits longer than `statement_timeout`
+  // fails — which would turn "another instance is setting up" into a hard
+  // startup error.
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const held = await db.query<{ locked: boolean }>(`SELECT pg_try_advisory_lock($1) AS locked`, [LOCK]);
+    if (held.rows[0]?.locked) {
+      try {
+        // Someone may have finished while we were waiting for the lock.
+        if (!(await present())) await db.exec(SCHEMA_SQL);
+      } finally {
+        await db.query(`SELECT pg_advisory_unlock($1)`, [LOCK]);
+      }
+      return;
+    }
+    if (await present()) return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  // Whoever holds the lock is stuck. The script is idempotent, so running it
+  // unguarded is a worse-performing correct answer rather than a wrong one.
+  await db.exec(SCHEMA_SQL);
+}
+
+/** Bounded so one hot instance cannot eat the database's connection budget. */
+const POOL_MAX = Number(process.env.DATABASE_POOL_MAX ?? 5);
+
 async function connectPostgres(): Promise<Db> {
   const { Pool } = await import("pg");
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    // The default is 10 *per instance*. Serverless multiplies that by however
+    // many instances the traffic created, and a Postgres server has a fixed
+    // connection budget — the failure is not slowness, it is every instance
+    // being refused a connection at once. Small pools plus a pooled (pgbouncer)
+    // connection string is what survives a spike.
+    max: POOL_MAX,
+    // Hand back idle connections rather than holding them for an instance that
+    // may serve nothing else before it is reclaimed.
+    idleTimeoutMillis: 10_000,
+    // Fail fast when the pool is exhausted. Queueing forever turns one slow
+    // query into a request pile-up with no ceiling.
+    connectionTimeoutMillis: 5_000,
+    // A query that hangs holds a connection, and connections are the scarce
+    // thing here. Cut it off well inside the platform's own request timeout.
+    statement_timeout: 10_000,
+    query_timeout: 10_000,
+  });
 
   const wrap = (runner: {
     query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;

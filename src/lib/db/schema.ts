@@ -270,4 +270,19 @@ CREATE INDEX IF NOT EXISTS orders_created_at_idx ON orders (created_at DESC);
 CREATE INDEX IF NOT EXISTS orders_status_idx ON orders (status);
 CREATE INDEX IF NOT EXISTS orders_fulfilment_idx ON orders (fulfilment);
 CREATE INDEX IF NOT EXISTS orders_customer_email_idx ON orders (lower(customer_email));
+
+-- Rate limiting that survives more than one instance.
+--
+-- The in-process limiter is a real limit on one container and "N times the
+-- limit" across N of them, which is exactly the wrong shape under the traffic
+-- that makes limiting matter: a spike creates instances, and each new one
+-- starts a fresh, empty Map. This table is the shared counter the money
+-- endpoints check after the cheap in-process one has already said yes.
+CREATE TABLE IF NOT EXISTS rate_limits (
+  bucket    text PRIMARY KEY,
+  count     integer     NOT NULL DEFAULT 0,
+  reset_at  timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS rate_limits_reset_at_idx ON rate_limits (reset_at);
 `;

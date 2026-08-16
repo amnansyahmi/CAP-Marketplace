@@ -59,6 +59,16 @@ function rowToLevel(row: StockRow): StockLevel {
 }
 
 /**
+ * Once per process, so a busy shop is not paying for it on every request.
+ *
+ * The catalogue is a compiled-in constant: it can only change with a deploy,
+ * and a deploy is a new process. Doing this on every read turned every
+ * storefront availability check — the most-hit database call there is — into a
+ * write, which is the wrong shape under load and needless the rest of the time.
+ */
+let rowsEnsured: Promise<void> | undefined;
+
+/**
  * Makes sure every catalogue product has a row.
  *
  * Cheap and idempotent, so it runs before any read rather than being a
@@ -66,13 +76,29 @@ function rowToLevel(row: StockRow): StockLevel {
  */
 async function ensureRows(db: Db): Promise<void> {
   if (products.length === 0) return;
-  const values = products.map((_, i) => `($${i + 1})`).join(",");
-  await db.query(
-    `INSERT INTO product_stock (product_id)
-     SELECT * FROM (VALUES ${values}) AS v(product_id)
-     ON CONFLICT (product_id) DO NOTHING`,
-    products.map((p) => p.id),
-  );
+  if (!rowsEnsured) {
+    const values = products.map((_, i) => `($${i + 1})`).join(",");
+    rowsEnsured = db
+      .query(
+        `INSERT INTO product_stock (product_id)
+         SELECT * FROM (VALUES ${values}) AS v(product_id)
+         ON CONFLICT (product_id) DO NOTHING`,
+        products.map((p) => p.id),
+      )
+      .then(() => undefined)
+      // A failure must not be remembered as success, or the rows would never
+      // be created on this instance.
+      .catch((error) => {
+        rowsEnsured = undefined;
+        throw error;
+      });
+  }
+  return rowsEnsured;
+}
+
+/** Test seam: the memo is per-process and tests swap databases underneath it. */
+export function resetStockMemoForTests(): void {
+  rowsEnsured = undefined;
 }
 
 export async function stockLevels(): Promise<StockLevel[]> {

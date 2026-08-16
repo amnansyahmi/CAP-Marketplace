@@ -338,6 +338,11 @@ function readCallback(rawBody: string, headers: Headers): CallbackReading {
   }
 
   const status = statusFromCode(data.status);
+  // Reported so the handler can check it against the order total. Parsed
+  // leniently: a value we cannot read becomes undefined, and an unreadable
+  // amount must not be mistaken for a matching one.
+  const paid = Number(data.amount);
+
   return {
     ok: true,
     event: `status:${data.status ?? ""}`,
@@ -345,6 +350,8 @@ function readCallback(rawBody: string, headers: Headers): CallbackReading {
     // The callback names our order, not the payment intent, so the reference is
     // what the handler looks the order up by.
     reference: data.order_number || undefined,
+    ...(Number.isFinite(paid) && data.amount ? { paidAmount: paid } : {}),
+    ...(data.currency ? { paidCurrency: data.currency } : {}),
   };
 }
 

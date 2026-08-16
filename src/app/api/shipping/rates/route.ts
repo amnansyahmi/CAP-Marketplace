@@ -4,6 +4,7 @@ import { deliveryOptions } from "@/lib/delivery";
 import { productById } from "@/lib/products";
 import { round } from "@/lib/shipping";
 import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
+import { normaliseBagLines, readJsonBody } from "@/lib/request-limits";
 
 /**
  * Courier options for a bag going to a destination.
@@ -25,12 +26,13 @@ export async function POST(request: Request) {
   const gate = rateLimit(`rates:${clientKey(request)}`, { limit: 60, windowMs: 5 * 60 * 1000 });
   if (!gate.allowed) return tooManyRequests(gate.retryInMs);
 
-  let body: { state?: string; postcode?: string; items?: { productId?: string; quantity?: number }[] };
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Malformed request body." }, { status: 400 });
-  }
+  const read = await readJsonBody<{
+    state?: string;
+    postcode?: string;
+    items?: { productId?: string; quantity?: number }[];
+  }>(request);
+  if (!read.ok) return read.response;
+  const body = read.body;
 
   const state = String(body.state ?? "").trim();
   const postcode = String(body.postcode ?? "").trim();
@@ -38,12 +40,11 @@ export async function POST(request: Request) {
 
   const lines: { productId: string; quantity: number }[] = [];
   let subtotal = 0;
-  for (const line of body.items ?? []) {
-    const product = productById(String(line.productId ?? ""));
+  for (const line of normaliseBagLines(body.items ?? [])) {
+    const product = productById(line.productId);
     if (!product) continue;
-    const quantity = Math.min(99, Math.max(1, Math.floor(Number(line.quantity) || 0)));
-    lines.push({ productId: product.id, quantity });
-    subtotal += product.price * quantity;
+    lines.push({ productId: product.id, quantity: line.quantity });
+    subtotal += product.price * line.quantity;
   }
   subtotal = round(subtotal);
 

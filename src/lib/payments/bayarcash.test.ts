@@ -357,13 +357,27 @@ describe("reading a callback", () => {
   it("reports a settled payment against the order it names", () => {
     env.BAYARCASH_API_SECRET_KEY = SECRET;
     const reading = bayarcashGateway.readCallback(body(transactionCallback("3")), form);
-    assert.deepEqual(reading, { ok: true, event: "status:3", status: "paid", reference: "CA-7F3K9Q" });
+    assert.deepEqual(reading, {
+      ok: true,
+      event: "status:3",
+      status: "paid",
+      reference: "CA-7F3K9Q",
+      // Reported so the handler can refuse to settle an order for the wrong money.
+      paidAmount: 47.8,
+      paidCurrency: "MYR",
+    });
   });
 
   it("carries no status while the payment is still in flight", () => {
     env.BAYARCASH_API_SECRET_KEY = SECRET;
     const reading = bayarcashGateway.readCallback(body(transactionCallback("1")), form);
-    assert.deepEqual(reading, { ok: true, event: "status:1", reference: "CA-7F3K9Q" });
+    assert.deepEqual(reading, {
+      ok: true,
+      event: "status:1",
+      reference: "CA-7F3K9Q",
+      paidAmount: 47.8,
+      paidCurrency: "MYR",
+    });
   });
 
   it("refuses a forged callback", () => {

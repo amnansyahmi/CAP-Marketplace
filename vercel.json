@@ -7,6 +7,13 @@
       "headers": [{ "key": "Cache-Control", "value": "no-store, private" }]
     },
     {
+      "source": "/orders/(.*)",
+      "headers": [
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+        { "key": "Cache-Control", "value": "no-store, private" }
+      ]
+    },
+    {
       "source": "/admin/(.*)",
       "headers": [
         { "key": "X-Robots-Tag", "value": "noindex, nofollow" },

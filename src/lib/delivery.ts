@@ -15,9 +15,105 @@
  *   together would quietly hide that from the margin.
  */
 
-import { rateCheck, type Destination } from "@/lib/easyparcel";
+import { rateCheck, type CourierRate, type Destination, type Parcel } from "@/lib/easyparcel";
 import { parcelFor, type ParcelLine } from "@/lib/parcel";
 import { quoteShipping, round, zoneForState, ZONE_RATES } from "@/lib/shipping";
+
+/**
+ * Quotes are not per-customer.
+ *
+ * Two people in the same postcode buying two jars get the same courier prices,
+ * and at checkout the same person refetches on every address edit. Under load
+ * that is thousands of identical calls to a third party who is rate-limiting
+ * and billing us, all to learn what we learned a minute ago.
+ */
+const QUOTE_TTL_MS = 5 * 60 * 1000;
+const MAX_CACHED_QUOTES = 500;
+const quoteCache = new Map<string, { rates: CourierRate[]; expiresAt: number }>();
+
+/**
+ * How many failures in a row before we stop asking.
+ *
+ * When EasyParcel is down, every checkout otherwise waits the full timeout to
+ * be told what the shop already knew after the first one. Three strikes, then
+ * flat rates for a minute — the customer sees a working checkout instead of a
+ * five-second pause, and the shop stops hammering an API that is struggling.
+ */
+const BREAKER_THRESHOLD = 3;
+const BREAKER_COOLDOWN_MS = 60 * 1000;
+let consecutiveFailures = 0;
+let breakerOpenUntil = 0;
+
+function quoteKey(destination: Destination, parcel: Parcel): string {
+  return [
+    destination.postcode,
+    destination.state,
+    destination.country ?? "MY",
+    parcel.weightKg,
+    parcel.widthCm,
+    parcel.heightCm,
+    parcel.lengthCm,
+  ].join("|");
+}
+
+/**
+ * Live rates, or an empty list when the courier cannot answer.
+ *
+ * Everything about *not* letting a third party stand between a customer and
+ * their order lives here: the cache, the breaker, and swallowing the failure so
+ * `deliveryOptions` falls back to the flat rate.
+ */
+async function cachedRates(destination: Destination, parcel: Parcel): Promise<CourierRate[]> {
+  const key = quoteKey(destination, parcel);
+  const now = Date.now();
+
+  const hit = quoteCache.get(key);
+  if (hit && hit.expiresAt > now) return hit.rates;
+
+  // Breaker open: do not spend a customer's time finding out again.
+  if (now < breakerOpenUntil) return [];
+
+  try {
+    const rates = await rateCheck(destination, parcel);
+    consecutiveFailures = 0;
+    if (quoteCache.size >= MAX_CACHED_QUOTES) sweepQuotes(now);
+    quoteCache.set(key, { rates, expiresAt: now + QUOTE_TTL_MS });
+    return rates;
+  } catch (error) {
+    consecutiveFailures += 1;
+    if (consecutiveFailures >= BREAKER_THRESHOLD) {
+      breakerOpenUntil = now + BREAKER_COOLDOWN_MS;
+      consecutiveFailures = 0;
+      console.warn(
+        `EasyParcel unreachable ${BREAKER_THRESHOLD} times in a row — using flat rates for ${
+          BREAKER_COOLDOWN_MS / 1000
+        }s.`,
+        error,
+      );
+    }
+    // A stale quote still beats no quote when the alternative is the flat rate.
+    if (hit) return hit.rates;
+    return [];
+  }
+}
+
+function sweepQuotes(now: number): void {
+  for (const [key, entry] of quoteCache) {
+    if (entry.expiresAt <= now) quoteCache.delete(key);
+  }
+  // Everything still live: drop the oldest rather than grow without bound.
+  if (quoteCache.size >= MAX_CACHED_QUOTES) {
+    const oldest = [...quoteCache.entries()].sort((a, b) => a[1].expiresAt - b[1].expiresAt);
+    for (const [key] of oldest.slice(0, Math.floor(MAX_CACHED_QUOTES / 4))) quoteCache.delete(key);
+  }
+}
+
+/** Test seam — clears the cache and closes the breaker between cases. */
+export function resetDeliveryCacheForTests(): void {
+  quoteCache.clear();
+  consecutiveFailures = 0;
+  breakerOpenUntil = 0;
+}
 
 export type DeliveryOption = {
   /** Stable across a session so the checkout can keep a selection. */
@@ -84,7 +180,7 @@ export async function deliveryOptions(
     zoneLabel: quote.zoneLabel,
   };
 
-  const rates = await rateCheck(destination, parcelFor(lines));
+  const rates = await cachedRates(destination, parcelFor(lines));
 
   if (rates.length === 0) {
     return { ...base, options: flat ? [applyFreeDelivery(flat, quote.free)] : [], source: "flat" };

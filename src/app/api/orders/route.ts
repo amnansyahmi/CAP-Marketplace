@@ -11,7 +11,8 @@ import { ORDER_COOKIE, addToOrderCookie, issueOrderToken } from "@/lib/order-acc
 import { orderStore, type NewOrder, type OrderItem } from "@/lib/orders";
 import { productById } from "@/lib/products";
 import { round } from "@/lib/shipping";
-import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
+import { clientKey, rateLimit, sharedRateLimit, tooManyRequests } from "@/lib/rate-limit";
+import { normaliseBagLines, readJsonBody } from "@/lib/request-limits";
 import { priceDelivery } from "@/lib/delivery";
 import { discountStore, normaliseDiscountCode } from "@/lib/discounts";
 import { commitReservation, markReserved, releaseReservation, reserve } from "@/lib/stock";
@@ -30,15 +31,17 @@ export async function POST(request: Request) {
   // Unauthenticated, and every call reserves stock, may redeem a discount code
   // and contacts the payment gateway. A script left unchecked could hold every
   // jar in pending reservations without paying for anything.
-  const gate = rateLimit(`orders:${clientKey(request)}`, { limit: 12, windowMs: 10 * 60 * 1000 });
+  const who = clientKey(request);
+  const gate = rateLimit(`orders:${who}`, { limit: 12, windowMs: 10 * 60 * 1000 });
   if (!gate.allowed) return tooManyRequests(gate.retryInMs);
+  // Again in the database, because the check above resets to empty on every new
+  // instance — and a spike is exactly when new instances appear.
+  const shared = await sharedRateLimit(`orders:${who}`, { limit: 12, windowMs: 10 * 60 * 1000 });
+  if (!shared.allowed) return tooManyRequests(shared.retryInMs);
 
-  let body: Partial<CheckoutInput>;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Malformed request body." }, { status: 400 });
-  }
+  const read = await readJsonBody<Partial<CheckoutInput>>(request);
+  if (!read.ok) return read.response;
+  const body = read.body;
 
   const errors = validateCheckout(body);
   if (hasErrors(errors)) {
@@ -47,21 +50,25 @@ export async function POST(request: Request) {
 
   // Rebuild every line from the server-side catalogue. Prices sent by the
   // browser are ignored entirely — only product ids and quantities are trusted,
-  // and even those are re-checked against the catalogue.
+  // and even those are re-checked against the catalogue. Duplicate lines are
+  // merged first, so the per-line cap cannot be multiplied by repeating a
+  // product.
   const items: OrderItem[] = [];
-  for (const line of body.items ?? []) {
+  for (const line of normaliseBagLines(body.items ?? [])) {
     const product = productById(line.productId);
     if (!product) {
       return NextResponse.json({ error: `Unknown product: ${line.productId}` }, { status: 422 });
     }
-    const quantity = Math.min(99, Math.max(1, Math.floor(line.quantity)));
     items.push({
       productId: product.id,
       name: product.name,
       unitPrice: product.price,
-      quantity,
-      lineTotal: round(product.price * quantity),
+      quantity: line.quantity,
+      lineTotal: round(product.price * line.quantity),
     });
+  }
+  if (items.length === 0) {
+    return NextResponse.json({ errors: { items: "Your bag is empty." } }, { status: 422 });
   }
 
   const subtotal = round(items.reduce((sum, i) => sum + i.lineTotal, 0));

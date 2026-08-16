@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { discountStore, normaliseDiscountCode } from "@/lib/discounts";
 import { productById } from "@/lib/products";
 import { round } from "@/lib/shipping";
-import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
+import { clientKey, rateLimit, sharedRateLimit, tooManyRequests } from "@/lib/rate-limit";
+import { normaliseBagLines, readJsonBody } from "@/lib/request-limits";
 
 /**
  * Checks a code so the checkout can show the new total before submitting.
@@ -21,25 +22,26 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   // Codes are short and guessable; without a limit this is an oracle for
   // finding live promotions.
-  const gate = rateLimit(`discount:${clientKey(request)}`, { limit: 20, windowMs: 5 * 60 * 1000 });
+  const who = clientKey(request);
+  const gate = rateLimit(`discount:${who}`, { limit: 20, windowMs: 5 * 60 * 1000 });
   if (!gate.allowed) return tooManyRequests(gate.retryInMs);
+  // Shared too: guessing codes is worth doing across instances, so the limit
+  // has to hold across them.
+  const shared = await sharedRateLimit(`discount:${who}`, { limit: 20, windowMs: 5 * 60 * 1000 });
+  if (!shared.allowed) return tooManyRequests(shared.retryInMs);
 
-  let body: { code?: string; items?: { productId?: string; quantity?: number }[] };
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Malformed request body." }, { status: 400 });
-  }
+  const read = await readJsonBody<{ code?: string; items?: { productId?: string; quantity?: number }[] }>(request);
+  if (!read.ok) return read.response;
+  const body = read.body;
 
   const code = normaliseDiscountCode(body.code);
   if (!code) return NextResponse.json({ ok: false, reason: "That code is not valid." });
 
   let subtotal = 0;
-  for (const line of body.items ?? []) {
-    const product = productById(String(line.productId ?? ""));
+  for (const line of normaliseBagLines(body.items ?? [])) {
+    const product = productById(line.productId);
     if (!product) continue;
-    const quantity = Math.min(99, Math.max(1, Math.floor(Number(line.quantity) || 0)));
-    subtotal += product.price * quantity;
+    subtotal += product.price * line.quantity;
   }
   subtotal = round(subtotal);
 

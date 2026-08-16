@@ -728,6 +728,86 @@ exclusion holds.
 Responses are `Cache-Control: no-store, private` — commercial data must not sit
 in a shared cache.
 
+## Security
+
+The rule throughout: **nothing that decides money is taken from the browser.**
+The client sends product ids, quantities and a delivery choice. Everything else
+— prices, the subtotal, postage, the discount, the total — is computed on the
+server from `src/lib/products.ts` and the discount table. A request that arrives
+with its own `unitPrice`, `subtotal` or `total` is not rejected; those fields
+are simply never read.
+
+### What an attacker can try, and what happens
+
+| Attempt | What stops it |
+| --- | --- |
+| Edit the price in devtools and submit | Every line is rebuilt from the catalogue; the posted price is never read |
+| Edit the total or the shipping fee | Both recomputed server-side; delivery is re-quoted, not taken from the request |
+| Send quantity `-4` to earn a credit | Rejected by validation; the bag is refused, not silently corrected |
+| Repeat one product 50 times at 99 each | Duplicate lines are merged before the cap applies, and 20 lines / 200 jars is the ceiling |
+| Post a 10,000-line bag | `413` before anything is parsed — bodies are capped at 16 KB |
+| Guess discount codes in a loop | Rate limited per address, in-process **and** in the database |
+| Redeem a limited code twice at the same instant | The limit lives inside the `UPDATE`'s `WHERE`, so only one caller wins |
+| Buy the last jar twice | `SELECT ... FOR UPDATE` inside the reservation transaction |
+| Forge a "paid" callback | Rejected unless the HMAC checksum verifies; a missing key rejects everything |
+| Pay RM 1 against an RM 400 order | The callback's amount and currency are checked against the order before it settles; a mismatch leaves it pending and logs loudly |
+| Replay a real "paid" callback | `paid` is terminal, stock moves once, and notifications are claimed by an insert |
+| Open someone else's order page by guessing the reference | Needs a signed token or the cookie from the browser that placed it |
+| Frame the shop to harvest clicks | `frame-ancestors 'none'` and `X-Frame-Options: DENY` |
+| Inject a script that posts the checkout form elsewhere | CSP `connect-src 'self'` and `form-action 'self'` |
+
+Admin, affiliate and partner credentials are all compared in constant time and
+**fail closed** — unset means the surface is disabled, never open.
+
+### Where the remaining risk is
+
+- **`x-forwarded-for` is not an identity.** Rate limits are keyed on it because
+  a shop cannot make buyers sign in. Behind Vercel the leftmost entry is the
+  real client; anywhere else, put a limit at the edge as well.
+- **CSP allows inline scripts.** Removing `'unsafe-inline'` means a per-request
+  nonce, which means giving up static rendering on the storefront. The half of
+  the policy that decides where data can *go* is unaffected.
+- **A refund does not move money.** It is recorded here and issued in the
+  gateway by a person.
+
+## Capacity
+
+What actually happens when a lot of people arrive at once, by path:
+
+| Path | Cost per visitor | Where it is served |
+| --- | --- | --- |
+| Home, product pages, policies | none | Prerendered, served from the CDN |
+| Stock availability | one small query per 15s **for everyone** | `Cache-Control: max-age=15` on `/api/availability` |
+| Courier quotes | one call per postcode + parcel size per 5 min | In-process cache in `src/lib/delivery.ts` |
+| Placing an order | ~10 database round trips and one gateway call | Origin |
+
+So five thousand people browsing is a CDN problem, not a database one. Five
+thousand people *checking out at the same second* is the real question, and it
+is bounded by two things: database connections and the payment gateway.
+
+**Connections.** `DATABASE_POOL_MAX` (default 5) caps each instance. The default
+`pg` pool is 10 per instance, which a serverless host quietly multiplies by
+however many instances the spike created — the failure mode is not slowness, it
+is every instance being refused a connection at once. Use the **pooled**
+(pgbouncer, port 6543) Supabase URI, not the direct one. `connectionTimeoutMillis`
+and `statement_timeout` are set so a stuck query fails fast instead of holding a
+connection while requests queue behind it.
+
+**The schema script** runs only when the schema is missing, behind an advisory
+lock. Running it on every cold start meant dozens of concurrent
+`CREATE INDEX IF NOT EXISTS` contending on the catalogue at exactly the wrong
+moment.
+
+**A third party being slow must not become the shop being slow.** Courier
+quotes are cached, time out in 5 seconds, and after three consecutive failures
+a breaker sends every checkout to the flat rate for a minute. The checkout keeps
+working; the customer never waits on a courier's outage.
+
+**What is deliberately not solved here:** an in-memory rate limiter and quote
+cache are per-instance by nature. The money endpoints therefore count in the
+database as well. Beyond this, the next step is a limit at the edge (Vercel
+Firewall or Cloudflare), which is configuration rather than code.
+
 ## Deploying to Vercel
 
 Set these in **Project → Settings → Environment Variables**, then redeploy.
@@ -752,6 +832,7 @@ Set these in **Project → Settings → Environment Variables**, then redeploy.
 | `PARTNER_API_KEY` | for the dashboard | Min 24 characters |
 | `AGENT_FEE_PER_SALE` | no | Defaults to `2` |
 | `AGENT_FEE_BASIS` | no | `order` (default) or `unit` |
+| `DATABASE_POOL_MAX` | no | Connections per instance. Defaults to `5` — see [Capacity](#capacity) |
 
 ### Two things that will stop a deploy misbehaving
 

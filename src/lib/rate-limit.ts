@@ -84,3 +84,59 @@ export function tooManyRequests(retryInMs: number): Response {
 export function resetRateLimitsForTests(): void {
   buckets.clear();
 }
+
+/**
+ * The same fixed window, counted in the database so every instance shares it.
+ *
+ * The in-process limiter above is the first gate and stays: it costs nothing
+ * and turns away the bulk of a naive flood without touching Postgres. This one
+ * exists because that limiter resets to empty on every new instance, and a
+ * traffic spike is precisely when new instances appear — so the limit a
+ * determined script actually meets is "N times the limit", growing with the
+ * load it creates. Reserve it for endpoints where being wrong costs money.
+ *
+ * One statement, so the read and the write cannot be split by a concurrent
+ * caller. **Fails open**: if the database is unreachable the limiter allows the
+ * request, because refusing every customer is a worse outcome than briefly
+ * losing a limit — and every endpoint that calls this needs the database
+ * moments later anyway.
+ */
+export async function sharedRateLimit(
+  key: string,
+  { limit, windowMs }: { limit: number; windowMs: number },
+): Promise<RateLimitResult> {
+  try {
+    const { getDb } = await import("@/lib/db/client");
+    const db = await getDb();
+    const rows = await db.query<{ count: number | string; reset_at: Date | string }>(
+      `INSERT INTO rate_limits (bucket, count, reset_at)
+            VALUES ($1, 1, now() + ($2::bigint * interval '1 millisecond'))
+       ON CONFLICT (bucket) DO UPDATE
+            SET count = CASE WHEN rate_limits.reset_at <= now() THEN 1 ELSE rate_limits.count + 1 END,
+                reset_at = CASE WHEN rate_limits.reset_at <= now()
+                                THEN now() + ($2::bigint * interval '1 millisecond')
+                                ELSE rate_limits.reset_at END
+         RETURNING count, reset_at`,
+      [key, Math.max(1, Math.floor(windowMs))],
+    );
+
+    const row = rows.rows[0];
+    if (!row) return { allowed: true };
+
+    if (Number(row.count) > limit) {
+      const resetAt = row.reset_at instanceof Date ? row.reset_at : new Date(row.reset_at);
+      return { allowed: false, retryInMs: Math.max(1000, resetAt.getTime() - Date.now()) };
+    }
+
+    // Occasionally, not on every request: the sweep is housekeeping, and making
+    // every checkout pay for it would be the limiter costing more than it saves.
+    if (Math.random() < 0.01) {
+      await db.query(`DELETE FROM rate_limits WHERE reset_at < now() - interval '1 hour'`);
+    }
+
+    return { allowed: true };
+  } catch (error) {
+    console.warn("Shared rate limit unavailable, allowing request", error);
+    return { allowed: true };
+  }
+}

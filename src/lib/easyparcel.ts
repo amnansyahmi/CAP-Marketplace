@@ -134,6 +134,7 @@ function ok(body: ApiResponse<unknown>): boolean {
 async function call<T>(
   action: string,
   fields: Record<string, string>,
+  timeoutMs = 12_000,
 ): Promise<{ ok: true; result: T[] } | { ok: false; error: string }> {
   const config = easyParcelConfig();
   if (!config.enabled) return { ok: false, error: config.reason };
@@ -146,7 +147,7 @@ async function call<T>(
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body,
       // A slow courier API must not hold a checkout open indefinitely.
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
     if (!response.ok) return { ok: false, error: `HTTP ${response.status}` };
@@ -191,6 +192,27 @@ type RateRow = {
  * Returns an empty list rather than an error when EasyParcel is unreachable;
  * the caller falls back to the shop's own flat rate so checkout keeps working.
  */
+/**
+ * A courier quote that did not come back.
+ *
+ * Distinct from "this destination has no services", which is a real answer and
+ * an empty list.
+ */
+export class RateCheckError extends Error {
+  constructor(reason: string) {
+    super(`EasyParcel rate check failed: ${reason}`);
+    this.name = "RateCheckError";
+  }
+}
+
+/**
+ * Shorter than the booking timeout on purpose. A booking happens once, in the
+ * admin, with someone watching; a rate check happens on the path of every
+ * customer editing their address, and 12 seconds of it is 12 seconds of held
+ * request per customer during an outage.
+ */
+const RATE_TIMEOUT_MS = 5_000;
+
 export async function rateCheck(destination: Destination, parcel: Parcel): Promise<CourierRate[]> {
   const config = easyParcelConfig();
   if (!config.enabled) return [];
@@ -198,10 +220,14 @@ export async function rateCheck(destination: Destination, parcel: Parcel): Promi
   const response = await call<{ rates?: RateRow[] } & RateRow>(
     "EPRateCheckingBulk",
     shipmentFields(destination, parcel, config),
+    RATE_TIMEOUT_MS,
   );
   if (!response.ok) {
     console.warn(`EasyParcel rate check failed: ${response.error}`);
-    return [];
+    // Thrown rather than returned as "no rates": a customer waiting at checkout
+    // needs the flat rate immediately, and the caller has to be able to tell an
+    // outage from a destination no courier serves. It decides what to do.
+    throw new RateCheckError(response.error);
   }
 
   // The rates for a shipment come back nested under the bulk entry.

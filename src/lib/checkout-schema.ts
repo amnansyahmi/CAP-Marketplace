@@ -4,6 +4,7 @@
  * validation is only there to give fast feedback.
  */
 
+import { MAX_ITEM_LINES, MAX_UNITS_PER_ORDER } from "@/lib/request-limits";
 import { isMalaysianState } from "@/lib/shipping";
 
 export type CheckoutInput = {
@@ -46,6 +47,12 @@ export function validateCheckout(input: Partial<CheckoutInput>): FieldErrors {
   if (items.length === 0) errors.items = "Your bag is empty.";
   else if (items.some((i) => !i?.productId || !Number.isFinite(i.quantity) || i.quantity < 1)) {
     errors.items = "Your bag contains an invalid item.";
+  } else if (items.length > MAX_ITEM_LINES) {
+    // Refused rather than trimmed. The storefront cannot produce a bag this
+    // shape, so silently shortening it would hide what is actually happening.
+    errors.items = "That is too many separate items for one order.";
+  } else if (items.reduce((sum, i) => sum + Math.floor(i.quantity), 0) > MAX_UNITS_PER_ORDER) {
+    errors.items = `Orders are limited to ${MAX_UNITS_PER_ORDER} jars. Please get in touch for wholesale.`;
   }
 
   return errors;

@@ -52,6 +52,16 @@ export type CallbackReading =
       /** Either identifier may be missing; the handler needs one of them. */
       paymentId?: string;
       reference?: string;
+      /**
+       * What was actually paid, when the gateway reports it.
+       *
+       * Checked against the order total before anything is settled: a verified
+       * callback proves the gateway sent it, not that the right amount arrived.
+       * Left undefined by gateways that do not report it, which skips the check
+       * rather than failing every payment.
+       */
+      paidAmount?: number;
+      paidCurrency?: string;
     };
 
 export interface PaymentGateway {
