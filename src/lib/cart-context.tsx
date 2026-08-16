@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
+import { pricedFor, useLiveCatalogue } from "@/lib/live-catalogue";
 import { products, productById, type Product } from "@/lib/products";
 import { round } from "@/lib/shipping";
 
@@ -45,6 +46,7 @@ function sanitise(raw: unknown): CartState {
 }
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
+  const live = useLiveCatalogue();
   const [state, setState] = useState<CartState>({});
   const [hydrated, setHydrated] = useState(false);
   const [bagOpen, setBagOpen] = useState(false);
@@ -107,9 +109,12 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<CartValue>(() => {
     // Iterate the catalogue so bag order stays stable as quantities change.
+    // Each line carries today's price rather than the one compiled into the
+    // page, so a bag left open across a price change shows what checkout will
+    // actually charge — which is priced server-side either way.
     const lines = products
       .filter((p) => state[p.id])
-      .map((product) => ({ product, quantity: state[product.id] }));
+      .map((product) => ({ product: pricedFor(product, live), quantity: state[product.id] }));
     return {
       lines,
       count: lines.reduce((n, l) => n + l.quantity, 0),
@@ -124,7 +129,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       remove,
       clear,
     };
-  }, [state, hydrated, bagOpen, openBag, add, setQuantity, change, remove, clear]);
+  }, [state, live, hydrated, bagOpen, openBag, add, setQuantity, change, remove, clear]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

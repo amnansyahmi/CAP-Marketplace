@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { deliveryOptions } from "@/lib/delivery";
 import { productById } from "@/lib/products";
+import { priceMap } from "@/lib/pricing";
 import { round } from "@/lib/shipping";
 import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { normaliseBagLines, readJsonBody } from "@/lib/request-limits";
@@ -38,13 +39,16 @@ export async function POST(request: Request) {
   const postcode = String(body.postcode ?? "").trim();
   if (!state) return NextResponse.json({ options: [], reason: "no_state" });
 
+  const prices = await priceMap();
   const lines: { productId: string; quantity: number }[] = [];
   let subtotal = 0;
   for (const line of normaliseBagLines(body.items ?? [])) {
     const product = productById(line.productId);
     if (!product) continue;
     lines.push({ productId: product.id, quantity: line.quantity });
-    subtotal += product.price * line.quantity;
+    // The subtotal decides whether delivery is free, so it is priced from the
+    // shop's record rather than from whatever the browser thinks things cost.
+    subtotal += (prices.get(product.id) ?? product.price) * line.quantity;
   }
   subtotal = round(subtotal);
 

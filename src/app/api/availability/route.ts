@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 
+import { priceMap } from "@/lib/pricing";
 import { stockLevels } from "@/lib/stock";
 
 /**
- * What is currently buyable.
+ * What is currently buyable, and at what price.
  *
  * A separate endpoint rather than a prop, so the storefront and product pages
  * keep their static rendering and still show live availability. Making those
@@ -17,7 +18,7 @@ import { stockLevels } from "@/lib/stock";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const levels = await stockLevels();
+  const [levels, prices] = await Promise.all([stockLevels(), priceMap()]);
 
   return NextResponse.json(
     {
@@ -28,6 +29,11 @@ export async function GET() {
         tracked: level.tracked,
         available: level.tracked ? level.available : null,
         soldOut: level.tracked && level.available === 0,
+        // The storefront is statically rendered, so the price baked into the
+        // page is the one that was current when it was built. This is how a
+        // change made in the admin reaches a visitor without a redeploy.
+        // It is a *display* price: the order API prices every line itself.
+        price: prices.get(level.productId) ?? null,
       })),
     },
     // Short-lived cache: stock changes, but not so fast that every card needs

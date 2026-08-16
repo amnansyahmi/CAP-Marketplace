@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { discountStore, normaliseDiscountCode } from "@/lib/discounts";
 import { productById } from "@/lib/products";
+import { priceMap } from "@/lib/pricing";
 import { round } from "@/lib/shipping";
 import { clientKey, rateLimit, sharedRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { normaliseBagLines, readJsonBody } from "@/lib/request-limits";
@@ -37,11 +38,12 @@ export async function POST(request: Request) {
   const code = normaliseDiscountCode(body.code);
   if (!code) return NextResponse.json({ ok: false, reason: "That code is not valid." });
 
+  const prices = await priceMap();
   let subtotal = 0;
   for (const line of normaliseBagLines(body.items ?? [])) {
     const product = productById(line.productId);
     if (!product) continue;
-    subtotal += product.price * line.quantity;
+    subtotal += (prices.get(product.id) ?? product.price) * line.quantity;
   }
   subtotal = round(subtotal);
 

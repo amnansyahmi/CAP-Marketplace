@@ -10,6 +10,7 @@ import { SiteHeader } from "@/components/site-header";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { HERITAGE_NOTE, productBySlug, products } from "@/lib/products";
+import { priceMap, withPrice } from "@/lib/pricing";
 import { ZONE_RATES } from "@/lib/shipping";
 import { availability } from "@/lib/stock";
 import { money } from "@/lib/utils";
@@ -42,10 +43,16 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
 export default async function ProductPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const product = productBySlug(slug);
-  if (!product) notFound();
+  const listed = productBySlug(slug);
+  if (!listed) notFound();
 
-  const others = products.filter((p) => p.id !== product.id);
+  // Priced at render, which for this page means every five minutes — the same
+  // refresh that keeps its stock claim honest. A price changed in the admin
+  // shows up here on the next rebuild, and immediately for anyone whose browser
+  // has already picked up the live catalogue.
+  const prices = await priceMap();
+  const product = withPrice(listed, prices);
+  const others = products.filter((p) => p.id !== product.id).map((p) => withPrice(p, prices));
   const { nutrition } = product;
 
   // Only claim availability for a product the shop actually counts — and only

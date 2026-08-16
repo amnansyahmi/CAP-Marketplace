@@ -62,7 +62,7 @@ export default async function ReportsPage({
         >
           <strong className="font-semibold">Running low.</strong>{" "}
           {low.map((item) => `${item.name} (${item.available} left)`).join(", ")}.{" "}
-          <Link href="/admin/stock" className="underline">
+          <Link href="/admin/products" className="underline">
             Update stock
           </Link>
           .

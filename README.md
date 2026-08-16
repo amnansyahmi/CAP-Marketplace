@@ -184,16 +184,25 @@ a live merchant account. Run a sandbox payment end to end
 
 ## Admin
 
-`/admin` covers the other half of the flow: what happens after a customer pays.
+`/admin` is where the shop is run: what it sells, for how much, and what happens
+after a customer pays.
 
-- **Overview** — revenue from settled orders, counts, and what is waiting to go out
-- **Orders** — filter by payment or fulfilment state, search by reference, name
-  or email, paginated
-- **Order detail** — full order, delivery address and contact, plus fulfilment
-  actions and a tracking number
+| Page | What it controls |
+| --- | --- |
+| **Overview** | Revenue from settled orders, counts, and what is waiting to go out |
+| **Products** | Price and stock per product, with 30-day sales beside each one — see [Prices](#prices) and [Stock](#stock) |
+| **Discounts** | Promotion codes: percentage or fixed, minimum spend, usage limit, expiry — see [Discount codes](#discount-codes) |
+| **Reports** | Sales by day and by product over 7, 30 or 90 days, and what is running low |
+| **Orders** | Filter by payment or fulfilment state, search by reference, name or email, paginated |
+| **Order detail** | Full order, delivery address and contact, fulfilment actions, tracking number, refund |
+| **Affiliates** | Referral codes, commission rates and what each one is owed |
 
 Orders carry a fulfilment state (`unfulfilled → packed → shipped → delivered`)
 separately from payment status, because the two are independent.
+
+Everything the shop owner changes here takes effect without a deploy. What it
+cannot change is a sale that already happened: prices, commission rates and the
+agent fee are all snapshotted onto the order when it is placed.
 
 ### Access
 
@@ -386,9 +395,49 @@ than no quote.
 > documented shape but have not been run with a real merchant key, so confirm
 > those field names before booking the first real parcel.
 
+## Prices
+
+Set from `/admin/products`, per product, alongside stock and how many jars that
+product has sold in the last thirty days — because setting a price without
+seeing what moved at the old one is guessing.
+
+`src/lib/products.ts` still holds the catalogue: identity, copy, weight,
+photography and a **launch price**. The `product_prices` table holds an
+override, and a product with no row sells at its catalogue price — so a database
+that has never been touched sells the right things for the right money.
+
+**Three rules the code keeps:**
+
+1. **The server decides the price.** `/api/orders` prices every line from
+   `priceMap()` when the order is placed. What the browser was showing is never
+   consulted — a tab left open across a price change is simply out of date, and
+   pays today's price.
+2. **A past order is never re-priced.** Orders snapshot `unitPrice` into
+   `order_items`. Changing a price today cannot rewrite what somebody paid last
+   week, and the admin says so on the form.
+3. **An unreachable database must not close the shop.** Every read falls back to
+   the catalogue price, which is also what makes the storefront buildable with
+   no database at all.
+
+**Getting a change in front of customers.** The storefront is statically
+rendered, so a price is baked into the page. Two things unbake it: the home page
+and product pages rebuild every five minutes and render the current price
+directly, and `/api/availability` — already fetched once per visit for stock —
+now carries prices too, so a browser corrects anything staler within fifteen
+seconds. Neither is a control; both are display.
+
+Prices are bounded at RM 1.00 to RM 999.00 and two decimal places. The ceiling
+is not arithmetic, it is a fat finger: an extra zero on a jar of spice paste is
+a mistake every time. **Reset to catalogue price** removes the override rather
+than typing the old number back, so the product follows the catalogue again.
+
+Running a promotion is a different thing from changing a price — see
+[Discount codes](#discount-codes), which leaves the shelf price alone and can
+expire on its own.
+
 ## Stock
 
-Off by default, and opt-in per product from `/admin/stock`. Turning stock on for
+Off by default, and opt-in per product from `/admin/products`. Turning stock on for
 a shop that has never counted its jars would take the whole catalogue off sale
 the moment the table appeared, so untracked products sell exactly as they did
 before.

@@ -271,6 +271,22 @@ CREATE INDEX IF NOT EXISTS orders_status_idx ON orders (status);
 CREATE INDEX IF NOT EXISTS orders_fulfilment_idx ON orders (fulfilment);
 CREATE INDEX IF NOT EXISTS orders_customer_email_idx ON orders (lower(customer_email));
 
+-- Prices the shop owner can change without a deploy.
+--
+-- An override, not the catalogue: src/lib/products.ts still holds every
+-- product's identity and its launch price, and a row here says "charge this
+-- instead". A product with no row sells at its catalogue price, so the shop
+-- works on a database that has never been touched.
+--
+-- What was charged is not read from here. Every order snapshots its own unit
+-- prices into order_items, so changing a price today cannot rewrite what
+-- somebody paid last week.
+CREATE TABLE IF NOT EXISTS product_prices (
+  product_id text PRIMARY KEY,
+  price      numeric(10,2) NOT NULL CHECK (price > 0),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- Rate limiting that survives more than one instance.
 --
 -- The in-process limiter is a real limit on one container and "N times the

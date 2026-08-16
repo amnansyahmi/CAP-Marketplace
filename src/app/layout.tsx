@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Cormorant_Garamond, Manrope } from "next/font/google";
 import "./globals.css";
 import { CartProvider } from "@/lib/cart-context";
+import { LiveCatalogueProvider } from "@/lib/live-catalogue";
 import { Toaster } from "@/components/ui/sonner";
 
 const serif = Cormorant_Garamond({ subsets: ["latin"], variable: "--font-serif", weight: ["500", "600"] });
@@ -38,10 +39,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className={`${serif.variable} ${sans.variable}`}>
-        <CartProvider>
-          {children}
-          <Toaster />
-        </CartProvider>
+        {/* Outside the cart on purpose: the bag's subtotal is priced from the
+            live catalogue, so the prices have to be available to it. */}
+        <LiveCatalogueProvider>
+          <CartProvider>
+            {children}
+            <Toaster />
+          </CartProvider>
+        </LiveCatalogueProvider>
       </body>
     </html>
   );

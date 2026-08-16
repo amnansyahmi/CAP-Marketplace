@@ -1,9 +1,10 @@
 "use client";
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
-import { BRAND_TAGLINE, HERITAGE_NOTE, products, startingPrice, type Product } from "@/lib/products";
+import { BRAND_TAGLINE, HERITAGE_NOTE, products, type Product } from "@/lib/products";
+import { pricedFor, startingPriceOf, useLiveCatalogue } from "@/lib/live-catalogue";
 import { useCart } from "@/lib/cart-context";
 import { useAddToBag } from "@/lib/use-add-to-bag";
 import { useAvailability, type Availability } from "@/lib/use-availability";
@@ -88,6 +89,7 @@ export default function Marketplace() {
 }
 
 function Hero() {
+  const live = useLiveCatalogue();
   return (
     <section className="relative mx-auto grid max-w-[1440px] lg:min-h-[720px] lg:grid-cols-[.88fr_1.12fr]">
       <div className="flex flex-col justify-center px-6 py-18 lg:px-14 lg:py-24 xl:px-24">
@@ -112,7 +114,7 @@ function Hero() {
           >
             Shop the collection
           </Button>
-          <span className="text-sm text-muted-foreground">From {money(startingPrice())} per 350g jar</span>
+          <span className="text-sm text-muted-foreground">From {money(startingPriceOf(live))} per 350g jar</span>
         </Reveal>
       </div>
       <div className="relative min-h-[520px] overflow-hidden bg-[#ded2bd] spice-field lg:min-h-full">
@@ -148,6 +150,10 @@ function Promises() {
 
 function Collection({ onAdd, onQuickView }: { onAdd: (p: Product) => void; onQuickView: (p: Product) => void }) {
   const stock = useAvailability();
+  const live = useLiveCatalogue();
+  // Priced once here, so the card, the quick view and the add-to-bag toast all
+  // show the same number without each having to think about it.
+  const catalogue = useMemo(() => products.map((p) => pricedFor(p, live)), [live]);
   return (
     <section id="collection" className="mx-auto max-w-[1440px] px-5 py-20 lg:px-10 lg:py-28">
       <Reveal className="mb-12 flex items-end justify-between gap-8">
@@ -161,7 +167,7 @@ function Collection({ onAdd, onQuickView }: { onAdd: (p: Product) => void; onQui
         </p>
       </Reveal>
       <div className="grid gap-x-6 gap-y-14 sm:grid-cols-2 lg:grid-cols-3">
-        {products.map((p, i) => (
+        {catalogue.map((p, i) => (
           // Staggered so the three cards arrive in sequence rather than as one block.
           <Reveal key={p.id} delay={i * 120}>
             <ProductCard

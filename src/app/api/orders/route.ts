@@ -10,6 +10,7 @@ import { notifyOrderPaid } from "@/lib/notifications/order-events";
 import { ORDER_COOKIE, addToOrderCookie, issueOrderToken } from "@/lib/order-access";
 import { orderStore, type NewOrder, type OrderItem } from "@/lib/orders";
 import { productById } from "@/lib/products";
+import { priceMap } from "@/lib/pricing";
 import { round } from "@/lib/shipping";
 import { clientKey, rateLimit, sharedRateLimit, tooManyRequests } from "@/lib/rate-limit";
 import { normaliseBagLines, readJsonBody } from "@/lib/request-limits";
@@ -53,18 +54,23 @@ export async function POST(request: Request) {
   // and even those are re-checked against the catalogue. Duplicate lines are
   // merged first, so the per-line cap cannot be multiplied by repeating a
   // product.
+  const prices = await priceMap();
   const items: OrderItem[] = [];
   for (const line of normaliseBagLines(body.items ?? [])) {
     const product = productById(line.productId);
     if (!product) {
       return NextResponse.json({ error: `Unknown product: ${line.productId}` }, { status: 422 });
     }
+    // Today's price, from the shop's own record. What the browser was shown is
+    // not consulted, so a stale tab prices at whatever the shop charges now —
+    // and the order snapshots it, so a later change cannot rewrite this sale.
+    const unitPrice = prices.get(product.id) ?? product.price;
     items.push({
       productId: product.id,
       name: product.name,
-      unitPrice: product.price,
+      unitPrice,
       quantity: line.quantity,
-      lineTotal: round(product.price * line.quantity),
+      lineTotal: round(unitPrice * line.quantity),
     });
   }
   if (items.length === 0) {

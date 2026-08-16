@@ -11,6 +11,9 @@ import { affiliateStore, normaliseCode } from "@/lib/affiliates";
 import { passwordProblem } from "@/lib/affiliate/password-rules";
 import { notifyOrderRefunded, notifyOrderShipped } from "@/lib/notifications/order-events";
 import { gatewayLabel } from "@/lib/payments/label";
+import { clearPrice, setPrice } from "@/lib/pricing";
+import { productById } from "@/lib/products";
+import { money } from "@/lib/utils";
 import { releaseReservation, returnStock, setStock } from "@/lib/stock";
 import { discountStore } from "@/lib/discounts";
 import { bookOrderShipment } from "@/lib/shipments";
@@ -96,7 +99,7 @@ export async function updateStatus(formData: FormData) {
 
   revalidatePath("/admin");
   revalidatePath("/admin/orders");
-  revalidatePath("/admin/stock");
+  revalidatePath("/admin/products");
   if (updated) revalidatePath(`/admin/orders/${updated.reference}`);
 }
 
@@ -135,13 +138,13 @@ export async function refundOrder(
     await discountStore.release(refunded.id);
   } catch (error) {
     console.error(`Refund ${refunded.reference}: stock could not be returned`, error);
-    stockNote = " Stock could not be put back automatically — check /admin/stock.";
+    stockNote = " Stock could not be put back automatically — check /admin/products.";
   }
   await notifyOrderRefunded(refunded);
 
   revalidatePath("/admin");
   revalidatePath("/admin/orders");
-  revalidatePath("/admin/stock");
+  revalidatePath("/admin/products");
   revalidatePath("/admin/affiliates");
   revalidatePath(`/admin/orders/${refunded.reference}`);
 
@@ -263,10 +266,21 @@ export async function payOutAffiliate(formData: FormData) {
   if (code) revalidatePath(`/admin/affiliates/${code}`);
 }
 
-export async function updateStock(
-  _prev: { message?: string } | undefined,
+/**
+ * Saves a product's price and stock together.
+ *
+ * One form and one action because they are one decision — "what am I selling
+ * this for, and how many have I got" — and because two forms per product meant
+ * two round trips to change one product.
+ *
+ * The price is applied first and reported separately: it is the field that
+ * changes what customers are charged, so "RM 19.90 → RM 22.00" has to appear in
+ * the confirmation rather than being folded into a generic "Saved".
+ */
+export async function updateProduct(
+  _prev: { message?: string; error?: string } | undefined,
   formData: FormData,
-): Promise<{ message?: string }> {
+): Promise<{ message?: string; error?: string }> {
   await requireAdmin();
 
   const productId = String(formData.get("productId") ?? "");
@@ -274,19 +288,61 @@ export async function updateStock(
   // An unchecked checkbox sends nothing, so absence means "not tracked".
   const tracked = String(formData.get("tracked") ?? "") === "true";
   if (!productId || !Number.isFinite(onHand) || onHand < 0) {
-    return { message: "That is not a valid stock count." };
+    return { error: "That is not a valid stock count." };
+  }
+
+  const notes: string[] = [];
+
+  const rawPrice = String(formData.get("price") ?? "").trim();
+  if (rawPrice) {
+    const saved = await setPrice(productId, Number(rawPrice));
+    // Refused outright rather than saving the stock and silently dropping the
+    // price: a half-applied save is worse than one that says what went wrong.
+    if (!saved.ok) return { error: saved.reason };
+    if (saved.change.from !== saved.change.to) {
+      notes.push(`Price ${money(saved.change.from)} → ${money(saved.change.to)}.`);
+    }
   }
 
   const level = await setStock(productId, { tracked, onHand });
-  if (!level) return { message: "That product is not in the catalogue." };
+  if (!level) return { error: "That product is not in the catalogue." };
 
-  revalidatePath("/admin/stock");
-  // The storefront reads availability, so it has to be rebuilt too.
+  notes.push(
+    level.tracked
+      ? `${level.available} available${level.reserved > 0 ? `, ${level.reserved} held by unpaid orders` : ""}.`
+      : "Selling without a stock limit.",
+  );
+
+  revalidatePath("/admin/products");
+  revalidatePath("/admin");
+  // The storefront carries both figures, so it has to be rebuilt too.
   revalidatePath("/");
   revalidatePath("/checkout");
+  revalidatePath("/products", "layout");
 
-  if (!level.tracked) return { message: "Saved. This product now sells without a stock limit." };
-  return { message: `Saved. ${level.available} available${level.reserved > 0 ? `, ${level.reserved} held by unpaid orders` : ""}.` };
+  return { message: `Saved. ${notes.join(" ")}` };
+}
+
+/** Puts a product back on its catalogue price. */
+export async function resetProductPrice(
+  _prev: { message?: string; error?: string } | undefined,
+  formData: FormData,
+): Promise<{ message?: string; error?: string }> {
+  await requireAdmin();
+
+  const productId = String(formData.get("productId") ?? "");
+  const product = productById(productId);
+  if (!product) return { error: "That product is not in the catalogue." };
+
+  await clearPrice(productId);
+
+  revalidatePath("/admin/products");
+  revalidatePath("/admin");
+  revalidatePath("/");
+  revalidatePath("/checkout");
+  revalidatePath("/products", "layout");
+
+  return { message: `Back to the catalogue price, ${money(product.price)}.` };
 }
 
 // --- discounts ---------------------------------------------------------------
