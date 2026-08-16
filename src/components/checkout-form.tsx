@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useCart } from "@/lib/cart-context";
 import { hasErrors, validateCheckout, type FieldErrors } from "@/lib/checkout-schema";
+import { gatewayLabel } from "@/lib/payments/label";
 import { MALAYSIAN_STATES, quoteShipping, round } from "@/lib/shipping";
 import { money } from "@/lib/utils";
 
@@ -541,10 +542,10 @@ export function CheckoutForm() {
           )}
 
           <Button type="submit" variant="warm" size="lg" className="mt-6 w-full" disabled={submitting}>
-            {submitting ? "Starting payment…" : "Pay with CHIP"}
+            {submitting ? "Starting payment…" : `Pay with ${gatewayLabel()}`}
           </Button>
           <p className="mt-4 text-center text-[10px] uppercase tracking-[.16em] text-muted-foreground">
-            Secure checkout powered by CHIP
+            Secure checkout powered by {gatewayLabel()}
           </p>
         </div>
       </aside>

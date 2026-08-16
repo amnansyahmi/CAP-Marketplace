@@ -4,6 +4,11 @@
  * Everything that touches CHIP's wire format lives in this file, so adapting to
  * their live API means editing one module.
  *
+ * Not the default any more — see `src/lib/payments/bayarcash.ts` — but kept
+ * whole: switching provider must not mean losing a working integration, and
+ * payments already in flight still have to be honoured. Select it with
+ * `NEXT_PUBLIC_PAYMENT_GATEWAY=chip`.
+ *
  * !! BEFORE GOING LIVE: confirm the request/response field names and the
  * webhook signature scheme below against CHIP's current API reference. The
  * shape here follows the documented Purchases API (amounts in sen, Bearer
@@ -24,11 +29,19 @@
 
 import { createVerify, timingSafeEqual } from "node:crypto";
 
-import { simulatedPaymentsAllowed } from "@/lib/environment";
-import type { Order } from "@/lib/orders";
+import type { Order, OrderStatus } from "@/lib/orders";
+import {
+  simulatedPurchase,
+  type CallbackReading,
+  type PaymentGateway,
+  type PurchaseResult,
+  type PurchaseUrls,
+} from "@/lib/payments/gateway";
 import { toSen } from "@/lib/shipping";
 
 const API_URL = process.env.CHIP_API_URL ?? "https://gate.chip-in.asia/api/v1";
+
+const REQUIRED_ENV = ["CHIP_BRAND_ID", "CHIP_SECRET_KEY"] as const;
 
 export function chipConfig() {
   const brandId = process.env.CHIP_BRAND_ID;
@@ -36,36 +49,10 @@ export function chipConfig() {
   return { brandId, secretKey, isLive: Boolean(brandId && secretKey) };
 }
 
-export type PurchaseResult = {
-  paymentId: string;
-  checkoutUrl: string;
-  /** False when the payment was simulated because CHIP is not configured. */
-  live: boolean;
-};
-
-export async function createPurchase(
-  order: Order,
-  urls: { successUrl: string; failureUrl: string; callbackUrl: string },
-): Promise<PurchaseResult> {
+export async function createPurchase(order: Order, urls: PurchaseUrls): Promise<PurchaseResult> {
   const { brandId, secretKey, isLive } = chipConfig();
 
-  if (!isLive) {
-    // Refusing here is the whole point. Without this, deploying without CHIP
-    // credentials would hand real customers an order marked "confirmed" for
-    // money that was never taken — a far worse failure than a broken checkout.
-    if (!simulatedPaymentsAllowed()) {
-      throw new Error(
-        "Refusing to simulate a payment on a production deployment. " +
-          "Set CHIP_BRAND_ID and CHIP_SECRET_KEY to take real payments, or set " +
-          "ALLOW_SIMULATED_PAYMENTS=1 if this deployment is deliberately a demo.",
-      );
-    }
-    return {
-      paymentId: `sim_${order.id}`,
-      checkoutUrl: urls.successUrl,
-      live: false,
-    };
-  }
+  if (!isLive) return simulatedPurchase(order, urls, REQUIRED_ENV);
 
   // Send the shipping charge as its own line so the CHIP-side total reconciles
   // with the order total rather than being silently folded into a product.
@@ -137,3 +124,43 @@ export function verifyWebhookSignature(rawBody: string, signature: string | null
     return false;
   }
 }
+
+/** CHIP event names mapped onto our order statuses. */
+const STATUS_BY_EVENT: Record<string, OrderStatus> = {
+  "purchase.paid": "paid",
+  "purchase.payment_failure": "failed",
+  "purchase.cancelled": "cancelled",
+  "purchase.expired": "failed",
+};
+
+function readCallback(rawBody: string, headers: Headers): CallbackReading {
+  if (!verifyWebhookSignature(rawBody, headers.get("x-signature"))) {
+    return { ok: false, reason: "unverified" };
+  }
+
+  let event: { event?: string; data?: { id?: string; reference?: string } };
+  try {
+    event = JSON.parse(rawBody);
+  } catch {
+    return { ok: false, reason: "malformed" };
+  }
+
+  const status = STATUS_BY_EVENT[event.event ?? ""];
+  return {
+    ok: true,
+    event: event.event ?? "",
+    ...(status ? { status } : {}),
+    paymentId: event.data?.id,
+    reference: event.data?.reference,
+  };
+}
+
+export const chipGateway: PaymentGateway = {
+  id: "chip",
+  label: "CHIP",
+  callbackPath: "/api/webhooks/chip",
+  requiredEnv: REQUIRED_ENV,
+  isLive: () => chipConfig().isLive,
+  createPurchase,
+  readCallback,
+};

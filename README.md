@@ -51,7 +51,7 @@ npm test         # money handling, persistence, auth, commission
 npm run build
 ```
 
-Without CHIP credentials the shop runs in **simulation mode** — see
+Without gateway credentials the shop runs in **simulation mode** — see
 [Payments](#payments).
 
 ## The shop
@@ -112,36 +112,74 @@ the shape of a live database.
 
 ## Payments
 
-Payments go through [CHIP Collect](https://www.chip-in.asia/). All gateway
-code is confined to `src/lib/chip.ts`.
+Payments go through [Bayarcash](https://bayarcash.com/) (API v3) — FPX, DuitNow,
+e-wallets and cards. Every gateway lives behind one small interface in
+`src/lib/payments/gateway.ts`, so nothing outside `src/lib/payments/` knows
+which provider took the money:
+
+| File | What it holds |
+| --- | --- |
+| `src/lib/payments/gateway.ts` | The interface, and the rule that refuses to fake a payment in production |
+| `src/lib/payments/bayarcash.ts` | Everything that touches Bayarcash's wire format |
+| `src/lib/payments/chip.ts` | The same for [CHIP Collect](https://www.chip-in.asia/) |
+| `src/lib/payments/callbacks.ts` | What happens once a payment moves — the same whoever took it |
+| `src/lib/payments/label.ts` | Which gateway is selected, and what to call it on screen |
+
+Set `NEXT_PUBLIC_PAYMENT_GATEWAY` to `bayarcash` (default) or `chip`. It is a
+`NEXT_PUBLIC_` variable so the checkout button and the server-side integration
+read the same value and cannot drift apart.
 
 Set these in `.env.local` to take real payments:
 
 | Variable | Purpose |
 | --- | --- |
-| `CHIP_BRAND_ID` | Brand UUID from the CHIP dashboard |
-| `CHIP_SECRET_KEY` | Secret API key — server-side only |
-| `CHIP_PUBLIC_KEY` | PEM public key used to verify webhook signatures |
+| `BAYARCASH_PAT` | Personal Access Token from the Bayarcash console |
+| `BAYARCASH_PORTAL_KEY` | The portal money is collected into |
+| `BAYARCASH_API_SECRET_KEY` | Signs requests and verifies every callback |
+| `BAYARCASH_SANDBOX` | `1` to use the sandbox console |
+| `BAYARCASH_PAYMENT_CHANNEL` | Optional channel id, or a list. Unset, the payer chooses |
 | `NEXT_PUBLIC_SITE_URL` | Public base URL for redirect and callback URLs |
 
-**Simulation mode.** When `CHIP_BRAND_ID` and `CHIP_SECRET_KEY` are absent, the
-checkout creates a real order record and marks it paid without contacting CHIP,
-so the full journey is clickable in development. The confirmation page labels
-any such order as simulated. Do not deploy without credentials.
+### How a payment travels
 
-**Before going live:** the request/response field names and the webhook
-signature scheme in `src/lib/chip.ts` follow CHIP's documented Purchases API but
-have not been exercised against a live merchant account — verify them against
-the current API reference first.
+1. `POST /api/orders` re-prices the basket, holds the stock and creates the
+   order, then asks Bayarcash for a payment intent — one signed decimal amount,
+   not a basket of line items.
+2. The customer pays on Bayarcash's page and is redirected to
+   `/api/payments/bayarcash/return`, which checks the redirect's checksum before
+   deciding what to show them. **It never writes to an order.**
+3. Bayarcash posts the result to `/api/webhooks/bayarcash`. That callback is the
+   only thing the shop settles on, so a customer who closes the tab still gets a
+   confirmed order.
+
+Both the request and every callback carry an HMAC-SHA256 checksum over a fixed
+set of fields, sorted by field name and joined with `|` — the scheme the
+official [PHP SDK](https://github.com/webimpian/bayarcash-php-sdk) implements.
+Outcomes arrive as status codes: `3` paid, `2` failed, `4` cancelled; `0` and
+`1` mean the payment is still in flight and are acknowledged without touching
+the order.
+
+**Simulation mode.** When `BAYARCASH_PAT` and `BAYARCASH_PORTAL_KEY` are absent,
+the checkout creates a real order record and marks it paid without contacting
+the gateway, so the full journey is clickable in development. The confirmation
+page labels any such order as simulated. Do not deploy without credentials.
+
+**Before going live:** the field names here follow the official SDK and were
+tested against fixtures built the same way, but have not been exercised against
+a live merchant account. Run a sandbox payment end to end
+(`BAYARCASH_SANDBOX=1`) before pointing real customers at it.
 
 ### Safeguards already in place
 
 - The order API ignores prices sent by the browser and recomputes every line,
   the shipping fee and the total from `src/lib/products.ts`.
-- Webhooks are rejected unless the RSA signature verifies against
-  `CHIP_PUBLIC_KEY`, so an order can never be marked paid by an unauthenticated
-  request.
-- `paid` is terminal — a late failure webhook cannot silently reverse a
+- Callbacks are rejected unless the checksum verifies against
+  `BAYARCASH_API_SECRET_KEY`, so an order can never be marked paid by an
+  unauthenticated request. A *missing* key rejects everything rather than
+  waving it through.
+- The payer's redirect is verified separately, against its own shorter field
+  set, and can only change what the customer is shown — never the order.
+- `paid` is terminal — a late failure callback cannot silently reverse a
   settled order.
 
 ## Admin
@@ -432,9 +470,10 @@ Refunding one order does all of this in a single guarded UPDATE:
 The guard is `WHERE status = 'paid' AND refunded_at IS NULL`, so two clicks
 cannot refund twice or void commission twice.
 
-**It does not move money.** CHIP holds the payment, so the actual refund is
-issued there; this records that it happened so the shop's own figures stop
-counting it as income. The admin says so on the button.
+**It does not move money.** The gateway holds the payment, so the actual refund
+is issued there; this records that it happened so the shop's own figures stop
+counting it as income. The admin says so on the button, naming whichever
+gateway is configured.
 
 Refunded orders are excluded from an affiliate's sales figures in *both* the
 admin and their own portal, and the partner feed carries `refundedAt` so the
@@ -696,10 +735,13 @@ Set these in **Project → Settings → Environment Variables**, then redeploy.
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `DATABASE_URL` | **yes** | Postgres. Supabase's **pooled** URI (port 6543), not the direct one |
-| `NEXT_PUBLIC_SITE_URL` | **yes** | e.g. `https://chefammar.my` — CHIP redirects back here |
-| `CHIP_BRAND_ID` | to take money | From the CHIP dashboard |
-| `CHIP_SECRET_KEY` | to take money | |
-| `CHIP_PUBLIC_KEY` | to take money | Without it, webhooks are rejected and orders never confirm |
+| `NEXT_PUBLIC_SITE_URL` | **yes** | e.g. `https://chefammar.my` — the gateway redirects back here |
+| `NEXT_PUBLIC_PAYMENT_GATEWAY` | no | `bayarcash` (default) or `chip` |
+| `BAYARCASH_PAT` | to take money | Personal Access Token from the Bayarcash console |
+| `BAYARCASH_PORTAL_KEY` | to take money | The portal money is collected into |
+| `BAYARCASH_API_SECRET_KEY` | to take money | Without it, callbacks are rejected and orders never confirm |
+| `BAYARCASH_SANDBOX` | no | `1` to use the sandbox console |
+| `BAYARCASH_PAYMENT_CHANNEL` | no | Channel id or list; unset, the payer chooses |
 | `ADMIN_PASSWORD` | to use `/admin` | Min 12 characters |
 | `ADMIN_SESSION_SECRET` | to use `/admin` | `openssl rand -base64 32` |
 | `ADMIN_DEMO_MODE` | never, for a real shop | `1` opens `/admin` with no sign-in |
@@ -718,7 +760,7 @@ fall back to the local development database: a serverless filesystem is
 read-only where the app lives and wiped between invocations where it is not, so
 orders would fail to save — or save and then vanish. The error names the fix.
 
-**Without CHIP credentials, a production deployment refuses to take orders.**
+**Without gateway credentials, a production deployment refuses to take orders.**
 In development the shop simulates payments so the flow is clickable. Doing that
 on a live URL would tell real customers their order was confirmed for money
 never collected, so it is refused. To show the shop on a production URL
@@ -734,7 +776,9 @@ too.
 1. Hit any page — the schema is created on first connection.
 2. Sign in at `/admin` and add your affiliates. Make sure `ADMIN_DEMO_MODE`
    is **not** set on the deployment.
-3. Point CHIP's webhook at `https://your-domain/api/webhooks/chip`.
+3. In the Bayarcash console, set the portal's callback URL to
+   `https://your-domain/api/webhooks/bayarcash`. The return URL is supplied per
+   payment and needs no configuration there.
 4. Give the central dashboard `PARTNER_API_KEY` and the endpoints under
    [Partner API](#partner-api).
 
@@ -752,7 +796,7 @@ from its label colour band.
 
 ## Still to do
 
-1. **Verify the CHIP integration** against a live merchant account — see
+1. **Run a Bayarcash sandbox payment end to end** before taking real money — see
    Payments above.
 2. Send order confirmation emails. Customers currently get a reference number on
    screen and nothing else.

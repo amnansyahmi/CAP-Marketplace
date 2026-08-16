@@ -10,6 +10,7 @@ import { FULFILMENT_STEPS, orderStore, type Fulfilment, type OrderStatus } from 
 import { affiliateStore, normaliseCode } from "@/lib/affiliates";
 import { passwordProblem } from "@/lib/affiliate/password-rules";
 import { notifyOrderRefunded, notifyOrderShipped } from "@/lib/notifications/order-events";
+import { gatewayLabel } from "@/lib/payments/label";
 import { releaseReservation, returnStock, setStock } from "@/lib/stock";
 import { discountStore } from "@/lib/discounts";
 import { bookOrderShipment } from "@/lib/shipments";
@@ -105,9 +106,9 @@ export async function updateStatus(formData: FormData) {
  * Records the refund and unwinds everything that hung off the sale: commission
  * and the agent fee are voided, stock goes back, and the customer is told.
  *
- * It does **not** move money. CHIP is where the payment lives, so the actual
- * refund is issued there; this records that it happened so the shop's own
- * figures stop counting it as income.
+ * It does **not** move money. The gateway is where the payment lives, so the
+ * actual refund is issued there; this records that it happened so the shop's
+ * own figures stop counting it as income.
  */
 export async function refundOrder(
   _prev: { error?: string; ok?: string } | undefined,
@@ -147,7 +148,7 @@ export async function refundOrder(
   return {
     ok:
       `Refund of RM ${refunded.refundAmount?.toFixed(2)} recorded. ` +
-      `Issue the money in CHIP if you have not already.${stockNote}`,
+      `Issue the money in ${gatewayLabel()} if you have not already.${stockNote}`,
   };
 }
 

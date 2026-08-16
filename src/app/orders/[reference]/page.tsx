@@ -8,7 +8,7 @@ import { SiteHeader } from "@/components/site-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { chipConfig } from "@/lib/chip";
+import { activeGateway } from "@/lib/payments/active";
 import { getMailer } from "@/lib/notifications/mailer";
 import { ORDER_COOKIE, cookiePlacedThisOrder, verifyOrderToken } from "@/lib/order-access";
 import { orderStore, type OrderStatus } from "@/lib/orders";
@@ -63,7 +63,8 @@ export default async function OrderPage({
   // A `?payment=failed` return from the gateway wins over a still-pending record.
   const status: OrderStatus = payment === "failed" && order.status === "pending_payment" ? "failed" : order.status;
   const copy = STATUS_COPY[status];
-  const { isLive } = chipConfig();
+  const gateway = activeGateway();
+  const isLive = gateway.isLive();
   const mailDriver = getMailer().name;
 
   return (
@@ -86,10 +87,15 @@ export default async function OrderPage({
 
         {status === "paid" && !isLive && (
           <p className="mt-6 rounded-md border border-border bg-muted/60 p-4 text-xs leading-6 text-muted-foreground">
-            <strong className="font-semibold">Simulated payment.</strong> CHIP credentials are not configured on this
-            environment, so this order was marked paid without money changing hands. Set{" "}
-            <code className="font-mono">CHIP_BRAND_ID</code> and <code className="font-mono">CHIP_SECRET_KEY</code> to
-            take real payments.
+            <strong className="font-semibold">Simulated payment.</strong> {gateway.label} credentials are not
+            configured on this environment, so this order was marked paid without money changing hands. Set{" "}
+            {gateway.requiredEnv.map((name, i) => (
+              <span key={name}>
+                {i > 0 && " and "}
+                <code className="font-mono">{name}</code>
+              </span>
+            ))}{" "}
+            to take real payments.
           </p>
         )}
 

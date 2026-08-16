@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 
 import { refundOrder } from "@/app/admin/actions";
+import { gatewayLabel } from "@/lib/payments/label";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,8 +29,8 @@ export function RefundForm({ orderId, amount }: { orderId: string; amount: strin
         back and emails the customer.
       </p>
       <p className="mt-3 text-xs leading-5 text-muted-foreground">
-        This does not move money. Issue the refund in CHIP as well — this records that you did, so the
-        shop&rsquo;s figures stop counting it as income.
+        This does not move money. Issue the refund in {gatewayLabel()} as well — this records that you
+        did, so the shop&rsquo;s figures stop counting it as income.
       </p>
 
       <form action={formAction} className="mt-5 space-y-3">

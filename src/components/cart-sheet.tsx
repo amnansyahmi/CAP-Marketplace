@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Minus, Plus } from "lucide-react";
 
 import { useCart, type CartLine } from "@/lib/cart-context";
+import { gatewayLabel } from "@/lib/payments/label";
 import { money } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -66,7 +67,7 @@ export function CartSheet() {
               </Button>
             </SheetClose>
             <p className="mt-4 text-center text-[10px] uppercase tracking-[.16em] text-muted-foreground">
-              Secure checkout powered by CHIP
+              Secure checkout powered by {gatewayLabel()}
             </p>
           </SheetFooter>
         )}

@@ -1,8 +1,8 @@
 /**
  * Deciding to send, exactly once.
  *
- * A payment webhook can arrive twice — gateways retry when they do not get a
- * prompt 200, and CHIP is no exception. Two confirmations for one order is a
+ * A payment callback can arrive twice — gateways retry when they do not get a
+ * prompt 200, and Bayarcash is no exception. Two confirmations for one order is a
  * small embarrassment; two *shipping* notices with different tracking numbers
  * is a support call. So the decision to send is a database write, not a
  * judgement made in JavaScript.

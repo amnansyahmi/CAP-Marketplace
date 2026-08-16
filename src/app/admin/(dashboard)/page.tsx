@@ -3,7 +3,7 @@ import Link from "next/link";
 import { OrderTable } from "@/components/admin/order-table";
 import { Button } from "@/components/ui/button";
 import { agentConfig } from "@/lib/agent";
-import { chipConfig } from "@/lib/chip";
+import { activeGateway } from "@/lib/payments/active";
 import { usingExternalDatabase } from "@/lib/db/client";
 import { orderStore } from "@/lib/orders";
 import { money } from "@/lib/utils";
@@ -16,10 +16,11 @@ export default async function AdminOverviewPage() {
     orderStore.list({ limit: 8 }),
   ]);
 
-  const { isLive } = chipConfig();
+  const gateway = activeGateway();
   const agent = agentConfig();
   const warnings = [
-    !isLive && "CHIP credentials are not set, so payments are simulated and no money is collected.",
+    !gateway.isLive() &&
+      `${gateway.label} credentials are not set (${gateway.requiredEnv.join(", ")}), so payments are simulated and no money is collected.`,
     !usingExternalDatabase() &&
       "DATABASE_URL is not set. Orders are stored locally via PGlite, which is development only.",
   ].filter(Boolean) as string[];

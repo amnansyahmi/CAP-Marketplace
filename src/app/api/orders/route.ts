@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { affiliateStore, commissionFor } from "@/lib/affiliates";
 import { agentConfig, agentFeeFor, totalUnits } from "@/lib/agent";
 import { REFERRAL_COOKIE } from "@/middleware";
-import { createPurchase } from "@/lib/chip";
+import { activeGateway } from "@/lib/payments/active";
 import { hasErrors, validateCheckout, type CheckoutInput } from "@/lib/checkout-schema";
 import { notifyOrderPaid } from "@/lib/notifications/order-events";
 import { ORDER_COOKIE, addToOrderCookie, issueOrderToken } from "@/lib/order-access";
@@ -181,14 +181,22 @@ export async function POST(request: Request) {
 
   const origin = baseUrl(request);
   // Carried on the gateway return links too: the customer may well come back
-  // from CHIP in a different tab or app, where only the URL travels with them.
+  // from the gateway in a different tab or app, where only the URL travels with
+  // them.
   const token = issueOrderToken(order.reference);
   const query = token ? `?t=${token}` : "";
+  const gateway = activeGateway();
+  const successUrl = `${origin}/orders/${order.reference}${query}`;
   try {
-    const purchase = await createPurchase(order, {
-      successUrl: `${origin}/orders/${order.reference}${query}`,
+    const purchase = await gateway.createPurchase(order, {
+      successUrl,
       failureUrl: `${origin}/orders/${order.reference}${query}${query ? "&" : "?"}payment=failed`,
-      callbackUrl: `${origin}/api/webhooks/chip`,
+      // A gateway with one return URL for every outcome gets its own route,
+      // which checks what the redirect claims before the customer sees it.
+      returnUrl: gateway.returnPath
+        ? `${origin}${gateway.returnPath}?reference=${order.reference}${token ? `&t=${token}` : ""}`
+        : successUrl,
+      callbackUrl: `${origin}${gateway.callbackPath}`,
     });
 
     const settled = await orderStore.attachPayment(order.id, {
@@ -199,8 +207,8 @@ export async function POST(request: Request) {
       markPaid: !purchase.live,
     });
 
-    // With a live gateway the confirmation is sent from the webhook instead,
-    // once CHIP says the money actually arrived.
+    // With a live gateway the confirmation is sent from the callback instead,
+    // once the gateway says the money actually arrived.
     if (settled?.status === "paid") {
       await commitReservation(settled.id);
       await notifyOrderPaid(settled);
@@ -230,7 +238,7 @@ export async function POST(request: Request) {
     // limited code — go straight back.
     await releaseReservation(order.id);
     await discountStore.release(order.id);
-    console.error("Failed to create CHIP purchase", error);
+    console.error(`Failed to create ${gateway.label} payment`, error);
     return NextResponse.json(
       { error: "We could not start the payment. Please try again." },
       { status: 502 },

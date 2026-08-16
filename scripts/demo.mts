@@ -150,7 +150,7 @@ console.log(`
       http://localhost:3000/api/partner/summary
 
   Notes
-    · Payments are simulated — no CHIP credentials, so no money moves.
+    · Payments are simulated — no gateway credentials, so no money moves.
     · Orders live in a local database under .data/, not Postgres.
     · These credentials are printed in a terminal. Local demo only.
 
