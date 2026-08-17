@@ -906,9 +906,12 @@ too.
 1. Hit any page — the schema is created on first connection.
 2. Sign in at `/admin` and add your affiliates. Make sure `ADMIN_DEMO_MODE`
    is **not** set on the deployment.
-3. In the Bayarcash console, set the portal's callback URL to
-   `https://your-domain/api/webhooks/bayarcash`. The return URL is supplied per
-   payment and needs no configuration there.
+3. Nothing to configure in the Bayarcash console: every payment intent carries
+   its own `callback_url` and `return_url`, built from `NEXT_PUBLIC_SITE_URL`.
+   If the portal offers a default callback URL, setting it to
+   `https://your-domain/api/webhooks/bayarcash` does no harm — but the shop does
+   not rely on it, which is why `NEXT_PUBLIC_SITE_URL` is the variable that
+   matters.
 4. Give the central dashboard `PARTNER_API_KEY` and the endpoints under
    [Partner API](#partner-api).
 
