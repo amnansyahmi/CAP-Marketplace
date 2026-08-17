@@ -120,6 +120,14 @@ export interface DiscountStore {
   redeem(code: string, subtotal: number): Promise<DiscountCheck>;
   /** Gives a redemption back when the order never completed. */
   release(orderId: string): Promise<boolean>;
+  /**
+   * Takes the redemption back off the shelf when the order completed after all.
+   *
+   * The mirror of `release`, for a payment that failed and then succeeded. A
+   * code that was actually used has to stay counted, or a limited promotion
+   * quietly runs further than it was meant to.
+   */
+  reclaim(orderId: string): Promise<boolean>;
 }
 
 class PostgresDiscountStore implements DiscountStore {
@@ -250,6 +258,29 @@ class PostgresDiscountStore implements DiscountStore {
         `UPDATE discount_codes SET redeemed = GREATEST(0, redeemed - 1) WHERE code = $1`,
         [code],
       );
+      return true;
+    });
+  }
+
+  async reclaim(orderId: string): Promise<boolean> {
+    const db = await getDb();
+
+    return db.transaction(async (tx) => {
+      // Claim first, exactly as `release` does: two callbacks arriving together
+      // must not count the same code twice.
+      const claimed = await tx.query<{ discount_code: string }>(
+        `UPDATE orders SET discount_released = false
+          WHERE id = $1 AND discount_code IS NOT NULL AND discount_released = true
+          RETURNING discount_code`,
+        [orderId],
+      );
+      const code = claimed.rows[0]?.discount_code;
+      if (!code) return false;
+
+      // Deliberately not checked against `max_redemptions`. The customer used
+      // the code and paid; the count is a record of what happened, and a record
+      // that refuses to admit the last redemption is simply wrong.
+      await tx.query(`UPDATE discount_codes SET redeemed = redeemed + 1 WHERE code = $1`, [code]);
       return true;
     });
   }

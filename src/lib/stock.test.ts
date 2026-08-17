@@ -182,7 +182,11 @@ describe("committing and releasing", () => {
     assert.equal((await levelOf("kabsah")).available, 10);
   });
 
-  it("cannot commit a reservation that was already released", async () => {
+  it("commits a reservation that was released, because the sale happened after all", async () => {
+    // A payment fails, the jars go back on the shelf, and then the customer
+    // retries and pays — or a late 'paid' callback lands after a 'failed' one.
+    // The sale is real, so the stock has to come off; leaving it on the shelf
+    // would have the shop counting jars it has already shipped.
     await setStock("kabsah", { tracked: true, onHand: 10 });
     await reserve([{ productId: "kabsah", quantity: 2 }]);
     const order = await placeOrder([
@@ -190,8 +194,14 @@ describe("committing and releasing", () => {
     ]);
 
     await releaseReservation(order.id);
+    assert.equal((await levelOf("kabsah")).onHand, 10, "back on the shelf while the payment is failed");
+
+    assert.equal(await commitReservation(order.id), true);
+    assert.equal((await levelOf("kabsah")).onHand, 8);
+
+    // And only once, however many times the callback is delivered.
     assert.equal(await commitReservation(order.id), false);
-    assert.equal((await levelOf("kabsah")).onHand, 10);
+    assert.equal((await levelOf("kabsah")).onHand, 8);
   });
 
   it("commits only once for a webhook delivered twice", async () => {

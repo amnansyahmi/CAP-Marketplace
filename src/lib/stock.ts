@@ -210,9 +210,67 @@ export async function reserve(lines: StockLine[]): Promise<ReservationResult> {
  *
  * Guarded on `stock_state = 'reserved'`, so a webhook delivered twice cannot
  * take the same stock off twice.
+ *
+ * An order whose hold was already **released** is committed too. That is not a
+ * theoretical case: a payment fails, the jars go back on the shelf, the
+ * customer clicks "try the payment again" and this time it works — or a late
+ * `paid` callback simply arrives after a `failed` one. The sale happened, so
+ * the stock has to come off, and without this the shop would keep counting
+ * jars it has already sent out.
  */
 export async function commitReservation(orderId: string): Promise<boolean> {
-  return moveReservation(orderId, "committed");
+  if (await moveReservation(orderId, "committed")) return true;
+  return commitReleased(orderId);
+}
+
+/**
+ * Takes stock off for a sale whose hold had already been given back.
+ *
+ * Separate from `moveReservation` because there is no reservation left to
+ * decrement — only `on_hand` moves. If the jars were sold to somebody else in
+ * the meantime this cannot invent them: it floors at zero and says so loudly,
+ * because at that point the shop owes a customer a jar it does not have and a
+ * person has to decide what to do about it.
+ */
+async function commitReleased(orderId: string): Promise<boolean> {
+  const db = await getDb();
+
+  return db.transaction(async (tx) => {
+    const claimed = await tx.query<{ id: string; reference: string }>(
+      `UPDATE orders SET stock_state = 'committed'
+        WHERE id = $1 AND stock_state = 'released'
+        RETURNING id, reference`,
+      [orderId],
+    );
+    const order = claimed.rows[0];
+    if (!order) return false;
+
+    const items = await tx.query<{ product_id: string; quantity: number | string }>(
+      `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
+      [orderId],
+    );
+
+    for (const item of items.rows) {
+      const quantity = Number(item.quantity);
+      const updated = await tx.query<{ product_id: string; on_hand: number | string }>(
+        `UPDATE product_stock
+            SET on_hand = GREATEST(0, on_hand - $2), updated_at = now()
+          WHERE product_id = $1 AND tracked = true
+          RETURNING product_id, on_hand`,
+        [item.product_id, quantity],
+      );
+
+      const row = updated.rows[0];
+      if (row && Number(row.on_hand) === 0) {
+        console.warn(
+          `Order ${order.reference} settled after its stock hold was released: ` +
+            `${item.product_id} is now at zero. Check the count against the shelf.`,
+        );
+      }
+    }
+
+    return true;
+  });
 }
 
 /**

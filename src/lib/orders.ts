@@ -492,12 +492,24 @@ class PostgresOrderStore implements OrderStore {
               -- 'pending' is voided: commission already paid out is money that
               -- has left the business, and reclaiming it is a decision for a
               -- human, not a side effect of a status change.
+              --
+              -- And the reverse. A payment can fail and then succeed — the
+              -- customer retries, or a late 'paid' callback lands after a
+              -- 'failed' one — and the sale is then real. Without the second
+              -- branch the affiliate who brought that customer would be paid
+              -- nothing on an order that went through. The refunded_at check
+              -- keeps it away from commission voided by a refund, which is a
+              -- different fact entirely.
               commission_status = CASE
                 WHEN $2 IN ('failed','cancelled') AND commission_status = 'pending' THEN 'void'
+                WHEN $2 = 'paid' AND commission_status = 'void'
+                     AND affiliate_id IS NOT NULL AND refunded_at IS NULL THEN 'pending'
                 ELSE commission_status
               END,
               agent_fee_status = CASE
                 WHEN $2 IN ('failed','cancelled') AND agent_fee_status = 'pending' THEN 'void'
+                WHEN $2 = 'paid' AND agent_fee_status = 'void'
+                     AND agent_fee > 0 AND refunded_at IS NULL THEN 'pending'
                 ELSE agent_fee_status
               END
         WHERE id = $1

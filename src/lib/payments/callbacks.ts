@@ -95,6 +95,10 @@ export async function handleGatewayCallback(gateway: PaymentGateway, request: Re
   // callback that found it already settled never gets here.
   if (updated.status === "paid") {
     await commitReservation(updated.id);
+    // For an order that failed and then succeeded: the code was used after all,
+    // so the redemption it gave back has to be taken again. A no-op on the
+    // ordinary path, where nothing was ever released.
+    await discountStore.reclaim(updated.id);
   } else {
     await releaseReservation(updated.id);
     // The sale never happened, so a limited code gets its use back.
