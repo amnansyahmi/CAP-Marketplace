@@ -301,4 +301,25 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 );
 
 CREATE INDEX IF NOT EXISTS rate_limits_reset_at_idx ON rate_limits (reset_at);
+
+-- Which version of this script the database has had applied.
+--
+-- The script is idempotent, but running it on every cold start is expensive at
+-- exactly the wrong moment — see bootstrapSchema. Skipping it needs something
+-- better than "does the orders table exist": a database created by an older
+-- deploy has that table and is still missing everything added since.
+CREATE TABLE IF NOT EXISTS schema_state (
+  id      integer PRIMARY KEY CHECK (id = 1),
+  version integer NOT NULL
+);
 `;
+
+/**
+ * Bump this whenever SCHEMA_SQL changes.
+ *
+ * A deployed database records the version it has had applied; anything lower —
+ * or absent, which is what an older deploy looks like — makes the next
+ * connection run the script again. Forgetting to bump it means new tables are
+ * silently never created on databases that already exist.
+ */
+export const SCHEMA_VERSION = 2;

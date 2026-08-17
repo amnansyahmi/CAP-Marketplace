@@ -1,5 +1,5 @@
 import { isProductionDeployment, onVercel } from "@/lib/environment";
-import { SCHEMA_SQL } from "@/lib/db/schema";
+import { SCHEMA_SQL, SCHEMA_VERSION } from "@/lib/db/schema";
 
 // Not marked with `server-only`: that package throws outside a Next request
 // context and would make this untestable in a plain Node test runner. Pulling
@@ -78,20 +78,13 @@ async function connect(): Promise<Db> {
  * is one cheap query on the ordinary path.
  */
 async function bootstrapSchema(db: Db): Promise<void> {
-  const present = async () => {
-    const rows = await db.query<{ table: string | null }>(
-      `SELECT to_regclass('public.orders')::text AS table`,
-    );
-    return Boolean(rows.rows[0]?.table);
-  };
-
-  if (await present()) return;
+  if (await upToDate(db)) return;
 
   // PGlite is a single connection with no other writer, so the lock is pure
   // overhead there — and `pg_advisory_lock` on it would block the one session
   // the queue depends on.
   if (!process.env.DATABASE_URL) {
-    await db.exec(SCHEMA_SQL);
+    await applySchema(db);
     return;
   }
 
@@ -107,19 +100,49 @@ async function bootstrapSchema(db: Db): Promise<void> {
     if (held.rows[0]?.locked) {
       try {
         // Someone may have finished while we were waiting for the lock.
-        if (!(await present())) await db.exec(SCHEMA_SQL);
+        if (!(await upToDate(db))) await applySchema(db);
       } finally {
         await db.query(`SELECT pg_advisory_unlock($1)`, [LOCK]);
       }
       return;
     }
-    if (await present()) return;
+    if (await upToDate(db)) return;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 
   // Whoever holds the lock is stuck. The script is idempotent, so running it
   // unguarded is a worse-performing correct answer rather than a wrong one.
+  await applySchema(db);
+}
+
+/**
+ * Has this database had the current version of the script applied?
+ *
+ * Checking for one well-known table is not enough, and getting that wrong is
+ * quiet rather than loud: a database created by an earlier deploy has `orders`
+ * and is missing every table added since, so the app starts cleanly and then
+ * fails on the first query against something that was never created.
+ */
+async function upToDate(db: Db): Promise<boolean> {
+  const exists = await db.query<{ table: string | null }>(
+    `SELECT to_regclass('public.schema_state')::text AS table`,
+  );
+  if (!exists.rows[0]?.table) return false;
+
+  const rows = await db.query<{ version: number | string }>(
+    `SELECT version FROM schema_state WHERE id = 1`,
+  );
+  const version = rows.rows[0]?.version;
+  return version !== undefined && Number(version) === SCHEMA_VERSION;
+}
+
+async function applySchema(db: Db): Promise<void> {
   await db.exec(SCHEMA_SQL);
+  await db.query(
+    `INSERT INTO schema_state (id, version) VALUES (1, $1)
+     ON CONFLICT (id) DO UPDATE SET version = $1`,
+    [SCHEMA_VERSION],
+  );
 }
 
 /** Bounded so one hot instance cannot eat the database's connection budget. */
