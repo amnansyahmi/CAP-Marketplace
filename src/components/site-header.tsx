@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Menu } from "lucide-react";
 
 import { CartSheet } from "@/components/cart-sheet";
+import { ShopNowButton } from "@/components/shop-now-webview";
 import {
   Sheet,
   SheetClose,
@@ -45,7 +46,10 @@ export function SiteHeader() {
             </Link>
           ))}
         </nav>
-          <CartSheet />
+          <div className="flex items-center gap-4">
+            <ShopNowButton variant="warm" size="sm" className="hidden sm:inline-flex" />
+            <CartSheet />
+          </div>
         </div>
       </header>
     </>

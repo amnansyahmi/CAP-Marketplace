@@ -10,6 +10,7 @@ import { useAvailability, type Availability } from "@/lib/use-availability";
 import { ZONE_RATES } from "@/lib/shipping";
 import { cn, money } from "@/lib/utils";
 import { SiteHeader } from "@/components/site-header";
+import { ShopNowButton } from "@/components/shop-now-webview";
 import { SiteFooter } from "@/components/site-footer";
 import { Marquee } from "@/components/marquee";
 import { HeroJars } from "@/components/motion/hero-jars";
@@ -104,15 +105,18 @@ function Hero() {
             Chef-crafted cooking pastes with deep aroma, honest ingredients and enough flavour for the whole family.
           </p>
         </Reveal>
-        <Reveal delay={300} className="mt-10 flex flex-wrap items-center gap-6">
+        <Reveal delay={300} className="mt-10 flex flex-wrap items-center gap-4">
+          <ShopNowButton variant="warm" size="lg" />
           <Button
-            variant="warm"
+            variant="outline"
             size="lg"
             onClick={() => document.getElementById("collection")?.scrollIntoView({ behavior: "smooth" })}
           >
             Shop the collection
           </Button>
-          <span className="text-sm text-muted-foreground">From {money(startingPrice())} per 350g jar</span>
+          <span className="w-full text-sm text-muted-foreground sm:w-auto">
+            From {money(startingPrice())} per 350g jar
+          </span>
         </Reveal>
       </div>
       <div className="relative min-h-[520px] overflow-hidden bg-[#ded2bd] spice-field lg:min-h-full">
